@@ -94,6 +94,23 @@ export class TerminalFrontend {
     terminal.onData((data) =>
       this.send({ type: "input", sessionId: tab.sessionId, data }),
     );
+    terminal.attachCustomKeyEventHandler((event) => {
+      if (
+        event.key !== "Enter" ||
+        !event.shiftKey ||
+        event.altKey ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.isComposing ||
+        event.keyCode === 229
+      )
+        return true;
+      event.preventDefault();
+      // xterm maps Shift+Enter to plain Enter. CSI-u preserves the modifier so
+      // applications such as Codex can insert a newline instead of submitting.
+      if (event.type === "keydown") terminal.input("\x1b[13;2u");
+      return false;
+    });
     terminal.onResize(({ cols, rows }) =>
       this.send({ type: "resize", sessionId: tab.sessionId, cols, rows }),
     );

@@ -27,6 +27,9 @@ Keyboard shortcuts apply while GaoGrid has focus:
 | `⌘+` / `⌘-` | Adjust the focused terminal's font size   |
 | `⌘0`        | Restore the configured terminal font size |
 
+Inside a terminal, `Shift+Enter` sends a distinct key sequence so Codex can insert
+a newline without submitting the prompt.
+
 Terminal fonts and colors follow VS Code's terminal settings and current theme.
 
 ## Current persistence
