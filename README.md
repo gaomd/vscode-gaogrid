@@ -37,7 +37,7 @@ Next steps:
 - [ ] **Configurable keyboard shortcuts:** Respect user-defined VS Code
       keybindings across extension commands and webview keyboard handling. Keep
       shortcuts scoped to GaoGrid focus and update displayed shortcut labels.
-- [ ] **AI agent notifications:** Plan notifications when agents finish or need
+- [ ] **[AI agent notifications](docs/terminal-notifications.md):** Plan notifications when agents finish or need
       input, with attention indicators for the relevant workspace and pane,
       similar to cmux and herdr.
 
