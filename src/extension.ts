@@ -74,7 +74,7 @@ export function activate(context: vscode.ExtensionContext) {
         ),
       ),
       log: (message) => log.appendLine(message),
-      tmuxConfigPath: path.join(context.extensionPath, "media", "tmux.conf"),
+      tmuxConfigPath: path.join(context.extensionPath, "resources", "tmux.conf"),
       defaultShell: () =>
         vscode.workspace
           .getConfiguration("gaogrid")

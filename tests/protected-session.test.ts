@@ -21,7 +21,7 @@ import { TmuxBackend } from "../src/tmux-backend";
 
 const exec = promisify(execFile);
 const quote = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`;
-const config = resolve("media/tmux.conf");
+const config = resolve("resources/tmux.conf");
 async function until(check: () => boolean | Promise<boolean>, timeout = 6000) {
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {

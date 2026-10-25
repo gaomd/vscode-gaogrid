@@ -56,7 +56,7 @@ export class PtyManager {
     private readonly options: PtyOptions,
   ) {
     this.tmux = new TmuxBackend(
-      options.tmuxConfigPath || path.join(__dirname, "../media/tmux.conf"),
+      options.tmuxConfigPath || path.join(__dirname, "../resources/tmux.conf"),
       options.environment,
     );
     this.ensureSpawnHelperExecutable();

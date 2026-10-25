@@ -7,7 +7,7 @@ async function main() {
   const manager = new PtyManager(() => {}, {
     defaultShell: () => "/bin/bash",
     defaultDirectories: () => [root],
-    tmuxConfigPath: resolve("media/tmux.conf"),
+    tmuxConfigPath: resolve("resources/tmux.conf"),
     environment: { ...process.env, HOME: root },
   });
   await manager.start("crash", root, undefined, false, { backend: "tmux" });
