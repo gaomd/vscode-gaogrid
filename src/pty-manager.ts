@@ -283,17 +283,14 @@ export class PtyManager {
         }
       });
     });
-    proc.onExit(({ exitCode }) => {
+    proc.onExit(() => {
       session.exited = true;
       if (session.closing || this.stopping) return;
       if (tmuxId) {
         void this.reconcileProtectedExit(sessionId, session, tmuxId);
         return;
       }
-      this.writeExitNotice(sessionId, session, `[process exited: ${exitCode}]`);
-      const metadata = this.backends.get(sessionId);
-      if (metadata) metadata.connectionState = "disconnected";
-      this.emitMetadata(sessionId);
+      void this.finishEndedSession(sessionId, session);
     });
     return session;
   }
@@ -336,6 +333,12 @@ export class PtyManager {
       return;
     }
 
+    await this.finishEndedSession(sessionId, session);
+  }
+
+  private async finishEndedSession(sessionId: string, session: Session) {
+    const current = () => this.sessions.get(sessionId) === session;
+    if (!current() || session.closing || this.stopping) return;
     if (session.checkpointTimer) clearTimeout(session.checkpointTimer);
     await session.checkpoint;
     if (!current() || session.closing || this.stopping) return;
@@ -355,7 +358,11 @@ export class PtyManager {
     if (!this.stopping) this.emit({ type: "sessionEnded", sessionId });
   }
 
-  private writeExitNotice(sessionId: string, session: Session, message: string) {
+  private writeExitNotice(
+    sessionId: string,
+    session: Session,
+    message: string,
+  ) {
     const current = () => this.sessions.get(sessionId) === session;
     const publish = current();
     session.history.write(`\r\n${message}\r\n`, () => {
@@ -364,9 +371,7 @@ export class PtyManager {
         this.scheduleCheckpoint(sessionId, session);
       }
     });
-    session.output = (session.output + `\r\n${message}\r\n`).slice(
-      -2_000_000,
-    );
+    session.output = (session.output + `\r\n${message}\r\n`).slice(-2_000_000);
   }
 
   private async waitForAttach(id: string, session: Session) {

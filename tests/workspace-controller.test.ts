@@ -118,6 +118,44 @@ async function settled() {
   await new Promise((resolve) => setImmediate(resolve));
 }
 
+test("shell exit removes its tab and focuses the adjacent tab without a close request", async () => {
+  const h = harness();
+  h.controller.sessionEnded("b-s1");
+  await settled();
+  const panes = getPanes(h.state().workspaces[0].root);
+  assert.deepEqual(
+    panes[1].tabs.map((tab) => tab.id),
+    ["b-2"],
+  );
+  assert.equal(panes[1].activeTabId, "b-2");
+  assert.equal(h.focused.at(-1), "b-2");
+  assert.equal(panes[0].tabs.length, 2);
+  assert.deepEqual(h.disposed, ["b-1"]);
+  assert.deepEqual(h.requests, []);
+  h.controller.sessionEnded("b-s1");
+  await settled();
+  assert.deepEqual(h.disposed, ["b-1"]);
+});
+
+test("the last shell exiting closes its workspace when another workspace remains", async () => {
+  const initial = fixture();
+  const first = pane("a", "/frontend");
+  first.tabs.splice(1);
+  initial.workspaces[0].root = first;
+  initial.workspaces[0].focusedPaneId = first.id;
+  const h = harness(initial);
+  h.controller.sessionEnded("a-s1");
+  await settled();
+  assert.deepEqual(
+    h.state().workspaces.map((workspace) => workspace.id),
+    ["two"],
+  );
+  assert.equal(h.state().activeWorkspaceId, "two");
+  assert.equal(h.state().workspaces[0].name, "^1");
+  assert.deepEqual(h.disposed, ["a-1"]);
+  assert.deepEqual(h.requests, []);
+});
+
 test("new tabs and nested splits inherit only the source pane and retain other selections", async () => {
   const h = harness();
   h.actions.createTab("b");

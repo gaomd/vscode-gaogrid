@@ -15,6 +15,7 @@ import { spawn } from "node:child_process";
 import { PtyManager } from "../src/pty-manager";
 import { inspectProcesses } from "../src/process-inspector";
 import { TerminalLifecycle } from "../src/terminal-lifecycle";
+import { TerminalOutputStore } from "../src/terminal-output-store";
 
 function running(pid: number) {
   try {
@@ -54,15 +55,23 @@ for (const shell of ["/bin/zsh", "/bin/bash"]) {
       "PS1='PTY_READY> '\n",
     );
     const errors: string[] = [];
+    const ended: string[] = [];
     const children: number[] = [];
+    const store = new TerminalOutputStore(join(root, "storage"));
     const manager = new PtyManager(
       (message) => {
-        const event = message as { type: string; message: string };
+        const event = message as {
+          type: string;
+          message: string;
+          sessionId: string;
+        };
         if (event.type === "error") errors.push(event.message);
+        if (event.type === "sessionEnded") ended.push(event.sessionId);
       },
       {
         defaultShell: () => shell,
         defaultDirectories: () => [root],
+        outputStore: store,
         environment: {
           ...process.env,
           HOME: root,
@@ -118,14 +127,18 @@ for (const shell of ["/bin/zsh", "/bin/bash"]) {
     await manager.closeSessions(["one"]);
     assert.equal(manager.lastCwd("one"), undefined);
     await until(() => !running(jobPid));
-    manager.input("two", "exit\r");
-    await until(
-      () => manager.output("two")?.includes("[process exited:") || false,
+    await until(async () => !!(await store.read("two")));
+    manager.input("two", "\x04");
+    await until(() => ended.includes("two"));
+    assert.deepEqual(ended, ["two"]);
+    assert.equal(manager.metadata("two"), undefined);
+    assert.equal(manager.output("two"), undefined);
+    assert.equal(await manager.replay("two"), undefined);
+    assert.equal(
+      await store.read("two"),
+      undefined,
+      "shell exit must delete recovery output",
     );
-    assert.equal(await manager.cwd("two"), nested);
-    // Reopening the view must not restart an exited terminal or lose its cwd.
-    await manager.start("two", root);
-    assert.equal(await manager.cwd("two"), nested);
 
     await manager.start("protected", root);
     await until(
