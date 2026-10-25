@@ -15,6 +15,10 @@ workspaces, and each pane's controls to add terminal tabs or split the layout.
 Double-click a tab or workspace to close it. You can create up to nine workspaces,
 with up to nine terminal tabs per pane.
 
+Drag tabs between panes and workspaces, drag a tab onto a pane to split it, and
+drop files or folders into a terminal to paste their paths. See the
+[tab movement and drag-and-drop guide](docs/tab-movement.md) for details.
+
 Keyboard shortcuts apply while GaoGrid has focus:
 
 | Shortcut    | Action                                    |
@@ -35,14 +39,6 @@ Inside a terminal, `Shift+Enter` sends a distinct key sequence so Codex can inse
 a newline without submitting the prompt.
 
 Terminal fonts and colors follow VS Code's terminal settings and current theme.
-
-Drop files or folders from Finder onto a terminal to insert their absolute paths.
-Explorer drops read VS Code's resource URI payload synchronously and insert
-shell-quoted paths into the terminal without submitting the command. Webviews
-only receive drops that the VS Code workbench forwards; if a VS Code version
-suppresses Explorer drags, use the Explorer context menu's **Copy Path** and
-paste into the terminal. If the runtime cannot resolve a Finder drop, a file
-picker lets you select the paths.
 
 New tabs and split panes start in the active terminal's current directory. If it
 is unavailable, GaoGrid tries the pane's last known directory, the current VS Code
@@ -104,9 +100,6 @@ They also check conservative residual cleanup.
 
 Next steps:
 
-- [ ] **Move tabs between panes and workspaces:** Move terminal tabs to another
-      pane, to a new workspace, or to a pane in another workspace, preserving
-      their live terminal sessions.
 - [ ] **Pane switching shortcuts:** Add configurable shortcuts to move focus
       between panes and focus the destination pane's active terminal tab.
 - [ ] **Split pane shortcuts:** Add configurable shortcuts to split the focused

@@ -5,12 +5,21 @@ import { TerminalFrontend } from "../terminal-frontend";
 import { createControl, reconcileChildren } from "./controls";
 import { MenuController, type MenuItem } from "./menu";
 import type { WorkspaceActions } from "./types";
-
-const TAB_DRAG_TYPE = "application/x-gaogrid-tab";
+import {
+  clearAllDragIndicators,
+  clearAllInsertionMarkers,
+  clearInsertionMarker,
+  dropSideAt,
+  isTabDrag,
+  showInsertionMarker,
+  readDraggedTab,
+  TAB_DRAG_TYPE,
+} from "./tab-drag";
 
 export class PaneView {
   readonly element = document.createElement("section");
   private readonly tabs = document.createElement("div");
+  private readonly tabInsertionMarker = document.createElement("div");
   private readonly surface = document.createElement("div");
   private readonly tabButtons = new Map<string, HTMLButtonElement>();
   private readonly mounts = new Map<string, HTMLElement>();
@@ -36,6 +45,10 @@ export class PaneView {
     this.tabs.className = "terminal-tabs";
     this.tabs.setAttribute("role", "tablist");
     this.tabs.setAttribute("aria-label", "Terminal tabs");
+    this.tabInsertionMarker.className = "drag-insertion-marker";
+    this.tabInsertionMarker.dataset.axis = "horizontal";
+    this.tabInsertionMarker.setAttribute("aria-hidden", "true");
+    this.tabInsertionMarker.hidden = true;
     this.add = createControl({
       label: "New Tab · ⌘T",
       icon: "add",
@@ -85,6 +98,105 @@ export class PaneView {
     tools.append(more);
     header.append(tabGroup, tools);
     this.surface.className = "terminal-surface";
+    this.surface.addEventListener(
+      "dragover",
+      (event) => {
+        if (!isTabDrag(event.dataTransfer)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const side = dropSideAt(
+          this.surface.getBoundingClientRect(),
+          event.clientX,
+          event.clientY,
+        );
+        this.surface.dataset.dropSide = side;
+        this.surface.dataset.dropPreview = "true";
+        event.dataTransfer!.dropEffect = "move";
+      },
+      true,
+    );
+    this.surface.addEventListener(
+      "dragleave",
+      (event) => {
+        if (!isTabDrag(event.dataTransfer)) return;
+        if (
+          event.relatedTarget instanceof Node &&
+          this.surface.contains(event.relatedTarget)
+        )
+          return;
+        this.clearDropPreview();
+      },
+      true,
+    );
+    this.surface.addEventListener(
+      "drop",
+      (event) => {
+        const tabId = readDraggedTab(event.dataTransfer);
+        if (!tabId) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const side =
+          (this.surface.dataset.dropSide as
+            | "left"
+            | "right"
+            | "top"
+            | "bottom"
+            | undefined) ||
+          dropSideAt(
+            this.surface.getBoundingClientRect(),
+            event.clientX,
+            event.clientY,
+          );
+        this.clearDropPreview();
+        this.actions.splitTabIntoPane(tabId, this.node.id, side);
+      },
+      true,
+    );
+    this.tabs.addEventListener(
+      "dragover",
+      (event) => {
+        if (!isTabDrag(event.dataTransfer)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        showInsertionMarker(
+          this.tabs,
+          this.tabInsertionMarker,
+          [...this.tabs.querySelectorAll<HTMLElement>(".terminal-tab")],
+          "horizontal",
+          event.clientX,
+          event.clientY,
+        );
+        event.dataTransfer!.dropEffect = "move";
+      },
+      true,
+    );
+    this.tabs.addEventListener(
+      "dragleave",
+      (event) => {
+        if (!isTabDrag(event.dataTransfer)) return;
+        if (
+          event.relatedTarget instanceof Node &&
+          this.tabs.contains(event.relatedTarget)
+        )
+          return;
+        clearInsertionMarker(this.tabs, this.tabInsertionMarker);
+      },
+      true,
+    );
+    this.tabs.addEventListener(
+      "drop",
+      (event) => {
+        const tabId = readDraggedTab(event.dataTransfer);
+        if (!tabId) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const targetIndex = Number(this.tabs.dataset.insertionIndex || 0);
+        clearInsertionMarker(this.tabs, this.tabInsertionMarker);
+        clearAllInsertionMarkers();
+        this.actions.moveTabToPane(tabId, this.node.id, targetIndex);
+      },
+      true,
+    );
     this.element.append(header, this.surface);
 
     this.element.addEventListener("pointerdown", () =>
@@ -152,15 +264,11 @@ export class PaneView {
         });
         button.addEventListener("dragstart", (event) => {
           event.dataTransfer?.setData(TAB_DRAG_TYPE, tab.id);
+          if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+          clearAllDragIndicators();
         });
-        button.addEventListener("dragover", (event) => {
-          if (event.dataTransfer?.types.includes(TAB_DRAG_TYPE))
-            event.preventDefault();
-        });
-        button.addEventListener("drop", (event) => {
-          event.preventDefault();
-          const id = event.dataTransfer?.getData(TAB_DRAG_TYPE);
-          if (id) this.actions.reorderTab(this.node.id, id, tab.id);
+        button.addEventListener("dragend", () => {
+          clearAllDragIndicators();
         });
         this.tabButtons.set(tab.id, button);
       }
@@ -220,7 +328,7 @@ export class PaneView {
       mount.hidden = !selected;
       return button;
     });
-    reconcileChildren(this.tabs, buttons);
+    reconcileChildren(this.tabs, [...buttons, this.tabInsertionMarker]);
     const selected = this.tabButtons.get(node.activeTabId || "");
     requestAnimationFrame(() =>
       selected?.scrollIntoView({ block: "nearest", inline: "nearest" }),
@@ -229,6 +337,11 @@ export class PaneView {
 
   setFocused(focused: boolean) {
     this.element.dataset.focused = String(focused);
+  }
+
+  private clearDropPreview() {
+    delete this.surface.dataset.dropSide;
+    delete this.surface.dataset.dropPreview;
   }
 
   private tabMenuItems(tabId: string): MenuItem[] {

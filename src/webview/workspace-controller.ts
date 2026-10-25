@@ -16,7 +16,7 @@ import {
 } from "./layout";
 import { TerminalFrontend } from "./terminal-frontend";
 import { WorkspaceView } from "./ui/workspace-view";
-import type { WorkspaceActions } from "./ui/types";
+import type { DropSide, WorkspaceActions } from "./ui/types";
 import type {
   CloseScope,
   LifecycleRequest,
@@ -30,6 +30,12 @@ interface WorkspaceBridge {
   send(message: unknown): void;
   persist(state: PersistedState): void;
   request(request: LifecycleRequest): Promise<LifecycleResult>;
+}
+
+interface TabLocation {
+  workspace: Workspace;
+  pane: PaneNode;
+  tab: TerminalTab;
 }
 
 const id = () => crypto.randomUUID();
@@ -87,8 +93,16 @@ export class WorkspaceController {
       unprotectTab: (paneId, tabId) => this.unprotectTab(paneId, tabId),
       activateTab: (paneId, tabId) => this.activateTab(paneId, tabId),
       closeTab: (paneId, tabId) => this.closeTabs(paneId, tabId),
-      reorderTab: (paneId, tabId, targetId) =>
-        this.reorderTab(paneId, tabId, targetId),
+      moveTabToPane: (tabId, paneId, targetIndex) =>
+        this.moveTabToPane(tabId, paneId, targetIndex),
+      splitTabIntoPane: (tabId, paneId, side) =>
+        this.splitTabIntoPane(tabId, paneId, side),
+      moveTabToWorkspace: (tabId, workspaceId) =>
+        this.moveTabToWorkspace(tabId, workspaceId),
+      moveTabToNewWorkspace: (tabId, targetIndex) =>
+        this.moveTabToNewWorkspace(tabId, targetIndex),
+      reorderWorkspace: (workspaceId, targetIndex) =>
+        this.reorderWorkspace(workspaceId, targetIndex),
       splitPane: (paneId, direction) => this.splitPane(paneId, direction),
       resizeSplit: (splitId, ratio, complete) =>
         this.resizeSplit(splitId, ratio, complete),
@@ -414,15 +428,290 @@ export class WorkspaceController {
     });
   }
 
-  private reorderTab(paneId: string, tabId: string, targetId: string) {
-    const pane = findPane(this.workspace()?.root || null, paneId);
-    if (!pane || tabId === targetId) return;
-    const from = pane.tabs.findIndex((tab) => tab.id === tabId);
-    const to = pane.tabs.findIndex((tab) => tab.id === targetId);
-    if (from < 0 || to < 0) return;
-    const [tab] = pane.tabs.splice(from, 1);
-    pane.tabs.splice(to, 0, tab);
+  private moveTabToPane(
+    tabId: string,
+    targetPaneId: string,
+    targetIndex?: number,
+  ) {
+    this.enqueue(async () => {
+      const source = this.locateTab(tabId);
+      const targetWorkspace = this.state.workspaces.find((workspace) =>
+        findPane(workspace.root, targetPaneId),
+      );
+      const targetPane = findPane(targetWorkspace?.root || null, targetPaneId);
+      if (!source || !targetWorkspace || !targetPane) return;
+      if (source.pane === targetPane) {
+        if (targetIndex !== undefined)
+          this.reorderTabAtIndex(targetPaneId, tabId, targetIndex);
+        return;
+      }
+      if (targetPane.tabs.length >= MAX_TABS_PER_PANE) return;
+
+      this.removeMovedTab(source);
+      targetPane.tabs.splice(
+        Math.max(
+          0,
+          Math.min(
+            targetIndex ?? targetPane.tabs.length,
+            targetPane.tabs.length,
+          ),
+        ),
+        0,
+        source.tab,
+      );
+      targetPane.activeTabId = source.tab.id;
+      targetPane.lastKnownCwd = source.tab.cwd;
+      targetWorkspace.focusedPaneId = targetPane.id;
+      this.state.activeWorkspaceId = targetWorkspace.id;
+      this.commit();
+    });
+  }
+
+  private reorderTabAtIndex(
+    paneId: string,
+    tabId: string,
+    targetIndex: number,
+  ) {
+    const workspace = this.state.workspaces.find((item) =>
+      findPane(item.root, paneId),
+    );
+    const pane = findPane(workspace?.root || null, paneId);
+    if (!pane) return;
+    const sourceIndex = pane.tabs.findIndex((tab) => tab.id === tabId);
+    if (sourceIndex < 0) return;
+    const [tab] = pane.tabs.splice(sourceIndex, 1);
+    const adjustedIndex =
+      sourceIndex < targetIndex ? targetIndex - 1 : targetIndex;
+    pane.tabs.splice(
+      Math.max(0, Math.min(adjustedIndex, pane.tabs.length)),
+      0,
+      tab,
+    );
+    if (pane.tabs[sourceIndex]?.id === tabId) return;
     this.commit();
+  }
+
+  private reorderWorkspace(workspaceId: string, targetIndex: number) {
+    const sourceIndex = this.state.workspaces.findIndex(
+      (workspace) => workspace.id === workspaceId,
+    );
+    if (sourceIndex < 0) return;
+    const [workspace] = this.state.workspaces.splice(sourceIndex, 1);
+    const adjustedIndex =
+      sourceIndex < targetIndex ? targetIndex - 1 : targetIndex;
+    this.state.workspaces.splice(
+      Math.max(0, Math.min(adjustedIndex, this.state.workspaces.length)),
+      0,
+      workspace,
+    );
+    if (this.state.workspaces[sourceIndex]?.id === workspaceId) return;
+    this.renumberWorkspaces();
+    this.commit(false);
+  }
+
+  private splitTabIntoPane(
+    tabId: string,
+    targetPaneId: string,
+    side: DropSide,
+  ) {
+    this.enqueue(async () => {
+      const source = this.locateTab(tabId);
+      const targetWorkspace = this.state.workspaces.find((workspace) =>
+        findPane(workspace.root, targetPaneId),
+      );
+      const targetPane = findPane(targetWorkspace?.root || null, targetPaneId);
+      if (!source || !targetWorkspace || !targetPane) return;
+
+      const samePane = source.pane === targetPane;
+      const needsReplacement = samePane && source.pane.tabs.length === 1;
+      const replacement = needsReplacement
+        ? makeTab(await this.resolveDirectory(source.pane))
+        : undefined;
+      if (replacement) replacement.profile = source.tab.profile;
+
+      this.removeMovedTab(source, samePane);
+      if (replacement) {
+        source.pane.tabs = [replacement];
+        source.pane.activeTabId = replacement.id;
+        source.pane.lastKnownCwd = replacement.cwd;
+      }
+
+      const fresh: PaneNode = {
+        type: "pane",
+        id: id(),
+        activeTabId: source.tab.id,
+        tabs: [source.tab],
+        lastKnownCwd: source.tab.cwd,
+      };
+      const before = side === "left" || side === "top";
+      const horizontal = side === "left" || side === "right";
+      const split: SplitNode = {
+        type: "split",
+        id: id(),
+        direction: horizontal ? "horizontal" : "vertical",
+        ratio: 0.5,
+        first: before ? fresh : targetPane,
+        second: before ? targetPane : fresh,
+      };
+      targetWorkspace.root = replaceNode(
+        targetWorkspace.root || targetPane,
+        targetPane.id,
+        split,
+      );
+      targetWorkspace.focusedPaneId = fresh.id;
+      this.state.activeWorkspaceId = targetWorkspace.id;
+      this.commit();
+      if (replacement) this.startTab(replacement);
+    });
+  }
+
+  private moveTabToWorkspace(tabId: string, workspaceId: string) {
+    this.enqueue(async () => {
+      const source = this.locateTab(tabId);
+      const targetWorkspace = this.state.workspaces.find(
+        (workspace) => workspace.id === workspaceId,
+      );
+      if (!source || !targetWorkspace || source.workspace === targetWorkspace)
+        return;
+
+      const targetPane =
+        findPane(targetWorkspace.root, targetWorkspace.focusedPaneId) ||
+        getPanes(targetWorkspace.root)[0];
+      if (targetPane && targetPane.tabs.length >= MAX_TABS_PER_PANE) {
+        const fresh: PaneNode = {
+          type: "pane",
+          id: id(),
+          activeTabId: source.tab.id,
+          tabs: [source.tab],
+          lastKnownCwd: source.tab.cwd,
+        };
+        const split: SplitNode = {
+          type: "split",
+          id: id(),
+          direction: "horizontal",
+          ratio: 0.5,
+          first: targetPane,
+          second: fresh,
+        };
+        targetWorkspace.root = replaceNode(
+          targetWorkspace.root!,
+          targetPane.id,
+          split,
+        );
+        this.removeMovedTab(source);
+        targetWorkspace.focusedPaneId = fresh.id;
+      } else {
+        this.removeMovedTab(source);
+        if (!targetPane) {
+          const fresh: PaneNode = {
+            type: "pane",
+            id: id(),
+            activeTabId: source.tab.id,
+            tabs: [source.tab],
+            lastKnownCwd: source.tab.cwd,
+          };
+          targetWorkspace.root = fresh;
+          targetWorkspace.focusedPaneId = fresh.id;
+        } else {
+          targetPane.tabs.push(source.tab);
+          targetPane.activeTabId = source.tab.id;
+          targetPane.lastKnownCwd = source.tab.cwd;
+          targetWorkspace.focusedPaneId = targetPane.id;
+        }
+      }
+      this.state.activeWorkspaceId = targetWorkspace.id;
+      this.commit();
+    });
+  }
+
+  private moveTabToNewWorkspace(tabId: string, targetIndex?: number) {
+    this.enqueue(async () => {
+      const source = this.locateTab(tabId);
+      if (!source) return;
+      const sourceWorkspaceIndex = this.state.workspaces.indexOf(
+        source.workspace,
+      );
+      const removesSourceWorkspace =
+        source.pane.tabs.length === 1 &&
+        getPanes(source.workspace.root).length === 1;
+      if (
+        this.state.workspaces.length >= MAX_WORKSPACES &&
+        !removesSourceWorkspace
+      )
+        return;
+
+      this.removeMovedTab(source);
+      const pane: PaneNode = {
+        type: "pane",
+        id: id(),
+        activeTabId: source.tab.id,
+        tabs: [source.tab],
+        lastKnownCwd: source.tab.cwd,
+      };
+      const workspace: Workspace = {
+        id: id(),
+        name: `^${this.state.workspaces.length + 1}`,
+        root: pane,
+        focusedPaneId: pane.id,
+      };
+      let insertionIndex = targetIndex ?? this.state.workspaces.length;
+      if (removesSourceWorkspace && sourceWorkspaceIndex < insertionIndex)
+        insertionIndex--;
+      insertionIndex = Math.max(
+        0,
+        Math.min(insertionIndex, this.state.workspaces.length),
+      );
+      this.state.workspaces.splice(insertionIndex, 0, workspace);
+      this.state.activeWorkspaceId = workspace.id;
+      this.renumberWorkspaces();
+      this.commit();
+    });
+  }
+
+  private locateTab(tabId: string): TabLocation | undefined {
+    for (const workspace of this.state.workspaces) {
+      for (const pane of getPanes(workspace.root)) {
+        const tab = pane.tabs.find((item) => item.id === tabId);
+        if (tab) return { workspace, pane, tab };
+      }
+    }
+    return undefined;
+  }
+
+  private removeMovedTab(source: TabLocation, preservePane = false) {
+    const { workspace, pane, tab } = source;
+    const index = pane.tabs.indexOf(tab);
+    if (index < 0) return;
+    pane.tabs.splice(index, 1);
+    if (pane.tabs.length) {
+      if (pane.activeTabId === tab.id) {
+        pane.activeTabId = pane.tabs[Math.min(index, pane.tabs.length - 1)].id;
+        pane.lastKnownCwd =
+          pane.tabs.find((item) => item.id === pane.activeTabId)?.cwd ||
+          pane.lastKnownCwd;
+      }
+      return;
+    }
+    pane.activeTabId = null;
+    if (preservePane) return;
+
+    const paneIndex = getPanes(workspace.root).findIndex(
+      (item) => item.id === pane.id,
+    );
+    workspace.root = removePane(workspace.root, pane.id);
+    const remaining = getPanes(workspace.root);
+    if (remaining.length) {
+      if (workspace.focusedPaneId === pane.id)
+        workspace.focusedPaneId =
+          remaining[Math.min(paneIndex, remaining.length - 1)]?.id;
+      return;
+    }
+
+    const workspaceIndex = this.state.workspaces.indexOf(workspace);
+    this.state.workspaces.splice(workspaceIndex, 1);
+    this.renumberWorkspaces();
+    if (this.state.activeWorkspaceId === workspace.id)
+      this.state.activeWorkspaceId = this.state.workspaces[0]?.id || "";
   }
 
   private splitPane(paneId: string, direction: SplitNode["direction"]) {
