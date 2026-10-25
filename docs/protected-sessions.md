@@ -45,9 +45,9 @@ particular passthrough or extended-key feature is required.
 | True color / 256 color | Automated capture verifies RGB and palette values.                                                                                                       |
 | Unicode / Chinese      | Automated text round-trip verifies preservation.                                                                                                         |
 | Nerd Font glyphs       | Code point preserved in capture; rendering still requires an installed font.                                                                             |
-| Mouse interaction      | Automated application SGR mouse event round-trip. tmux mouse support is enabled in the GaoGrid server.                                                    |
+| Mouse interaction      | Automated application SGR mouse event round-trip. tmux mouse support is enabled in the GaoGrid server.                                                   |
 | Bracketed paste        | Automated payload and delimiter round-trip.                                                                                                              |
-| Shift+Enter            | GaoGrid sends CSI-u input; tmux uses the CSI-u extended-key format for applications such as Codex. Older tmux support varies.                             |
+| Shift+Enter            | GaoGrid sends CSI-u input; tmux uses the CSI-u extended-key format for applications such as Codex. Older tmux support varies.                            |
 | Alternate screen / vim | Real vim edit/save and resize test.                                                                                                                      |
 | OSC 7 cwd              | Existing OSC parser plus tmux pane cwd inspection; tmux may consume the OSC itself.                                                                      |
 | Clipboard / OSC 52     | Passthrough enabled where supported; the existing xterm frontend does not implement OSC 52 clipboard writes.                                             |
