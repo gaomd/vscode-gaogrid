@@ -57,11 +57,13 @@ Fully detached daemons and long-running shell builtins without child processes
 are not detected. Close warnings are unavailable when process inspection is
 denied, including on Windows.
 
-## Current persistence
+## Session Recovery
 
-GaoGrid restores workspaces, split layouts, pane sizes, tabs, and working
-directories. Terminal processes stay alive while the extension is running;
-restarting VS Code recreates the shells in their saved directories.
+GaoGrid saves terminal output, workspace layout, and session metadata in VS Code
+storage. For long-running processes, you can opt into tmux-backed protected
+sessions from a tab's context menu when tmux is available. See the
+[session recovery guide](docs/session-recovery.md) for recovery behavior,
+protection, and compatibility details.
 
 ## Development
 
@@ -94,10 +96,6 @@ They also check conservative residual cleanup.
 
 Next steps:
 
-- [ ] **Session restore:** Plan terminal state restoration and
-      reconnection to surviving sessions. Define behavior across extension reloads
-      and VS Code restarts, keeping session ownership separate from workspace
-      layout.
 - [ ] **Move tabs between panes and workspaces:** Move terminal tabs to another
       pane, to a new workspace, or to a pane in another workspace, preserving
       their live terminal sessions.

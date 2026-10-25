@@ -464,3 +464,7 @@ button {
     transition: none !important;
   }
 }
+
+.control[hidden] {
+  display: none;
+}

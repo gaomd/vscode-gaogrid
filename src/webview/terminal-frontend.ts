@@ -18,6 +18,7 @@ interface TerminalSurface {
   scrollbar?: TerminalScrollbar;
   webgl?: WebglAddon;
   webglFailed?: boolean;
+  replaying?: boolean;
   disposeDrop(): void;
 }
 
@@ -26,6 +27,10 @@ export class TerminalFrontend {
   private readonly surfaces = new Map<string, TerminalSurface>();
   private readonly sessionTabs = new Map<string, string>();
   private readonly pendingOutput = new Map<string, string>();
+  private readonly pendingDimensions = new Map<
+    string,
+    { cols: number; rows: number }
+  >();
   private readonly closedSessions = new Set<string>();
   private frame?: number;
   private focusRequest = 0;
@@ -73,6 +78,7 @@ export class TerminalFrontend {
 
     const terminal = new Terminal({
       ...readTerminalOptions(),
+      ...this.pendingDimensions.get(tab.sessionId),
       cursorBlink: true,
       allowProposedApi: true,
       scrollback: 10000,
@@ -124,10 +130,17 @@ export class TerminalFrontend {
     });
     this.sessionTabs.set(tab.sessionId, tab.id);
     this.resizeObserver.observe(host);
+    this.pendingDimensions.delete(tab.sessionId);
     const output = this.pendingOutput.get(tab.sessionId);
     if (output) {
-      terminal.write(output);
+      const surface = this.surfaces.get(tab.id)!;
+      surface.replaying = true;
+      terminal.write(output, () => {
+        surface.replaying = false;
+        this.scheduleFit();
+      });
       this.pendingOutput.delete(tab.sessionId);
+      this.pendingDimensions.delete(tab.sessionId);
     }
     this.scheduleFit();
   }
@@ -140,8 +153,36 @@ export class TerminalFrontend {
     else
       this.pendingOutput.set(
         sessionId,
-        ((this.pendingOutput.get(sessionId) || "") + data).slice(-512000),
+        ((this.pendingOutput.get(sessionId) || "") + data).slice(-2_000_000),
       );
+  }
+
+  replay(sessionId: string, data: string, cols?: number, rows?: number) {
+    if (this.closedSessions.has(sessionId)) return;
+    const tabId = this.sessionTabs.get(sessionId);
+    const surface = tabId ? this.surfaces.get(tabId) : undefined;
+    if (surface) {
+      surface.replaying = true;
+      surface.terminal.write("", () => {
+        surface.terminal.reset();
+        if (cols && rows) surface.terminal.resize(cols, rows);
+      });
+      surface.terminal.write(data, () => {
+        surface.replaying = false;
+        this.scheduleFit();
+      });
+    } else {
+      if (cols && rows) this.pendingDimensions.set(sessionId, { cols, rows });
+      this.pendingOutput.set(sessionId, data);
+    }
+  }
+
+  reset(sessionId: string) {
+    this.pendingOutput.delete(sessionId);
+    this.pendingDimensions.delete(sessionId);
+    const tabId = this.sessionTabs.get(sessionId);
+    const terminal = tabId ? this.surfaces.get(tabId)?.terminal : undefined;
+    terminal?.write("", () => terminal.reset());
   }
 
   paste(sessionId: string, text: string) {
@@ -195,6 +236,7 @@ export class TerminalFrontend {
     this.surfaces.delete(tab.id);
     this.sessionTabs.delete(tab.sessionId);
     this.pendingOutput.delete(tab.sessionId);
+    this.pendingDimensions.delete(tab.sessionId);
   }
 
   scheduleFit() {
@@ -227,7 +269,7 @@ export class TerminalFrontend {
 
   private fitVisible() {
     for (const surface of this.surfaces.values()) {
-      if (!this.isVisible(surface)) continue;
+      if (!this.isVisible(surface) || surface.replaying) continue;
       if (!surface.opened) {
         surface.terminal.open(surface.host);
         surface.opened = true;
@@ -238,6 +280,14 @@ export class TerminalFrontend {
         );
       }
       surface.fit.fit();
+      for (const hidden of this.surfaces.values()) {
+        if (
+          hidden !== surface &&
+          hidden.host.hidden &&
+          hidden.host.parentElement === surface.host.parentElement
+        )
+          hidden.terminal.resize(surface.terminal.cols, surface.terminal.rows);
+      }
       surface.scrollbar?.sync();
       surface.terminal.refresh(0, surface.terminal.rows - 1);
     }

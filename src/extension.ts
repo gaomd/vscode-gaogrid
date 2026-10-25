@@ -2,30 +2,71 @@ import * as vscode from "vscode";
 import * as path from "path";
 import * as os from "os";
 import { randomUUID } from "crypto";
+import { TerminalOutputStore } from "./terminal-output-store";
 import { PtyManager } from "./pty-manager";
 import { PersistedState } from "./model";
 import { getPanes, getTabs } from "./webview/layout";
 import { resolveCwd, validDirectory } from "./cwd-resolver";
 import { TerminalLifecycle } from "./terminal-lifecycle";
-import type { LifecycleRequest, NewTerminalOptions } from "./terminal-protocol";
+import type {
+  LifecycleRequest,
+  NewTerminalOptions,
+  TerminalMetadata,
+  LifecycleResult,
+} from "./terminal-protocol";
+import { STATE_KEY, LEGACY_STATE_KEY, restoreState } from "./persistence-store";
 
-const STATE_KEY = "gaogrid.state.v2";
 let shutdown: (() => Promise<void>) | undefined;
 export function activate(context: vscode.ExtensionContext) {
   let view: vscode.WebviewView | undefined;
   let viewReady = false;
-  let state = context.workspaceState.get<PersistedState>(STATE_KEY) || {
-    workspaces: [],
-    activeWorkspaceId: "",
-  };
+  let viewGeneration = 0;
+  const replayed = new Set<string>();
+  let state = restoreState(
+    context.workspaceState.get(STATE_KEY) ??
+      context.workspaceState.get(LEGACY_STATE_KEY),
+  );
+  let saveTimer: ReturnType<typeof setTimeout> | undefined;
+  let stopping = false;
+  const log = vscode.window.createOutputChannel("GaoGrid");
+  context.subscriptions.push(log);
   const defaultDirectories = () => [workspaceDirectory(), os.homedir()];
   const manager = new PtyManager(
     (message) => {
-      if (viewReady || (message as { type: string }).type === "error")
+      const event = message as TerminalMetadata & {
+        type: string;
+        sessionId: string;
+      };
+      if (event.type === "metadata") {
+        for (const workspace of state.workspaces)
+          for (const tab of getTabs(workspace.root))
+            if (tab.sessionId === event.sessionId)
+              Object.assign(tab, manager.metadata(event.sessionId));
+        if (!stopping) {
+          if (saveTimer) clearTimeout(saveTimer);
+          saveTimer = setTimeout(() => {
+            saveTimer = undefined;
+            void persist();
+          }, 300);
+        }
+      }
+      if (event.type === "notice")
+        void vscode.window.showInformationMessage(
+          `GaoGrid: ${(message as { message: string }).message}`,
+        );
+      if (viewReady || (event.type === "data" && replayed.has(event.sessionId)))
         void view?.webview.postMessage(message);
     },
     {
       defaultDirectories,
+      outputStore: new TerminalOutputStore(
+        path.join(
+          (context.storageUri || context.globalStorageUri).fsPath,
+          "terminal-output",
+        ),
+      ),
+      log: (message) => log.appendLine(message),
+      tmuxConfigPath: path.join(context.extensionPath, "media", "tmux.conf"),
       defaultShell: () =>
         vscode.workspace
           .getConfiguration("gaogrid")
@@ -49,8 +90,10 @@ export function activate(context: vscode.ExtensionContext) {
   const persist = async () => {
     for (const workspace of state.workspaces)
       for (const pane of getPanes(workspace.root)) {
-        for (const tab of pane.tabs)
-          tab.cwd = manager.lastCwd(tab.sessionId) || tab.cwd;
+        for (const tab of pane.tabs) {
+          const metadata = manager.metadata(tab.sessionId);
+          if (metadata) Object.assign(tab, metadata);
+        }
         pane.lastKnownCwd =
           pane.tabs.find((tab) => tab.id === pane.activeTabId)?.cwd ||
           pane.lastKnownCwd;
@@ -61,6 +104,8 @@ export function activate(context: vscode.ExtensionContext) {
     resolveWebviewView(webviewView) {
       view = webviewView;
       viewReady = false;
+      viewGeneration++;
+      replayed.clear();
       webviewView.webview.options = {
         enableScripts: true,
         localResourceRoots: [
@@ -81,32 +126,82 @@ export function activate(context: vscode.ExtensionContext) {
         }
       });
       webviewView.webview.onDidReceiveMessage(async (message) => {
+        if (stopping) return;
         switch (message.type) {
           case "ready":
+            const generation = ++viewGeneration;
+            viewReady = false;
+            replayed.clear();
             await Promise.all(
               state.workspaces
                 .flatMap((workspace) => getTabs(workspace.root))
                 .map((tab) =>
-                  manager.start(tab.sessionId, tab.cwd, tab.profile),
+                  manager.start(tab.sessionId, tab.cwd, tab.profile, true, tab),
                 ),
             );
             await persist();
-            webviewView.webview.postMessage({ type: "init", state });
+            const capabilities = await manager.tmux.capabilities();
+            if (view !== webviewView || generation !== viewGeneration) break;
+            webviewView.webview.postMessage({
+              type: "init",
+              state,
+              capabilities,
+            });
             webviewView.webview.postMessage({
               type: "settings",
               settings: terminalSettings(),
             });
-            for (const ws of state.workspaces)
-              getTabs(ws.root).forEach((tab) => {
-                const output = manager.output(tab.sessionId);
-                if (output)
-                  webviewView.webview.postMessage({
-                    type: "replay",
-                    sessionId: tab.sessionId,
-                    data: output,
-                  });
-              });
+            await Promise.all(
+              state.workspaces
+                .flatMap((workspace) => getTabs(workspace.root))
+                .map(async (tab) => {
+                  const snapshot = await manager.replay(
+                    tab.sessionId,
+                    (snapshot) => {
+                      if (view !== webviewView || generation !== viewGeneration)
+                        return;
+                      webviewView.webview.postMessage({
+                        type: "replay",
+                        sessionId: tab.sessionId,
+                        ...snapshot,
+                      });
+                      replayed.add(tab.sessionId);
+                    },
+                  );
+                  if (
+                    !snapshot &&
+                    view === webviewView &&
+                    generation === viewGeneration
+                  ) {
+                    const output = manager.output(tab.sessionId);
+                    if (output)
+                      webviewView.webview.postMessage({
+                        type: "replay",
+                        sessionId: tab.sessionId,
+                        data: output,
+                      });
+                    replayed.add(tab.sessionId);
+                  }
+                }),
+            );
+            if (view !== webviewView || generation !== viewGeneration) break;
             viewReady = true;
+            if (capabilities.tmux.available) {
+              const known = state.workspaces
+                .flatMap((workspace) => getTabs(workspace.root))
+                .flatMap((tab) =>
+                  tab.backendSessionId ? [tab.backendSessionId] : [],
+                );
+              void manager.tmux
+                .orphans(known)
+                .then((ids) => {
+                  for (const id of ids)
+                    log.appendLine(
+                      `Orphaned protected session left running: ${id}`,
+                    );
+                })
+                .catch((error) => log.appendLine(String(error)));
+            }
             break;
           case "persist":
             state = message.state;
@@ -117,12 +212,15 @@ export function activate(context: vscode.ExtensionContext) {
               message.sessionId,
               message.cwd,
               message.profile,
+              false,
+              message,
             );
+            await persist();
             break;
           case "lifecycle": {
             try {
               const request = message.request as LifecycleRequest;
-              let value: string | boolean;
+              let value: LifecycleResult;
               if (request.kind === "resolveCwd") {
                 value =
                   (await validDirectory(request.explicitCwd)) ||
@@ -133,6 +231,73 @@ export function activate(context: vscode.ExtensionContext) {
                     request.lastKnownCwd,
                     ...defaultDirectories(),
                   ]));
+              } else if (request.kind === "protect") {
+                const metadata = await manager.promote(request.sessionId);
+                if (metadata) {
+                  await persist();
+                  value = metadata;
+                } else {
+                  const action = "Open Protected Tab";
+                  const selected = await vscode.window.showWarningMessage(
+                    "Cannot protect this terminal while a task is running.",
+                    {
+                      modal: true,
+                      detail:
+                        "Wait until the terminal returns to the shell prompt, or open a new protected tab." +
+                        (request.canOpenTab
+                          ? ""
+                          : "\nThis pane has reached its tab limit (9)."),
+                    },
+                    ...(request.canOpenTab ? [action] : []),
+                  );
+                  value = selected === action ? "openProtectedTab" : false;
+                }
+              } else if (request.kind === "reconnect") {
+                const tab = state.workspaces
+                  .flatMap((workspace) => getTabs(workspace.root))
+                  .find((item) => item.sessionId === request.sessionId);
+                if (!tab || tab.backend !== "tmux")
+                  throw new Error("Protected tab is no longer available.");
+                await manager.start(
+                  tab.sessionId,
+                  tab.cwd,
+                  tab.profile,
+                  false,
+                  tab,
+                );
+                await persist();
+                value = manager.metadata(tab.sessionId) || false;
+              } else if (request.kind === "unprotect") {
+                const tab = state.workspaces
+                  .flatMap((workspace) => getTabs(workspace.root))
+                  .find((item) => item.sessionId === request.sessionId);
+                if (!tab || tab.backend !== "tmux")
+                  throw new Error("Protected tab is no longer available.");
+                if (
+                  (await manager.activeTasks([tab.sessionId])).has(
+                    tab.sessionId,
+                  )
+                ) {
+                  await vscode.window.showWarningMessage(
+                    "Cannot remove protection while a task is running. Wait until the terminal returns to the shell prompt.",
+                  );
+                  value = false;
+                } else {
+                  const action = "Remove Protection";
+                  const selected = await vscode.window.showWarningMessage(
+                    "Remove protection from this terminal?",
+                    {
+                      modal: true,
+                      detail:
+                        "This destroys its tmux session and replaces it with a fresh direct shell in the current directory. Captured output is restored as history, but live screen and application state are not preserved.",
+                    },
+                    action,
+                  );
+                  if (selected === action) {
+                    value = (await manager.unprotect(tab.sessionId)) || false;
+                    await persist();
+                  } else value = false;
+                }
               } else if (request.kind === "close") {
                 value = await lifecycle.requestClose(request);
               } else throw new Error("Unknown terminal lifecycle operation.");
@@ -289,13 +454,19 @@ export function activate(context: vscode.ExtensionContext) {
     }),
   );
   shutdown = async () => {
-    await Promise.all(
+    stopping = true;
+    if (saveTimer) clearTimeout(saveTimer);
+    await manager.settle();
+    await Promise.allSettled(
       state.workspaces
         .flatMap((workspace) => getTabs(workspace.root))
         .map((tab) => manager.cwd(tab.sessionId)),
     );
-    await persist();
-    await manager.closeAll();
+    try {
+      await persist();
+    } finally {
+      await manager.shutdown();
+    }
   };
   function post(message: unknown) {
     view?.webview.postMessage(message);

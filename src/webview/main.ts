@@ -42,15 +42,29 @@ window.addEventListener("message", ({ data: message }) => {
       else request?.resolve(message.value);
       break;
     }
+    case "metadata":
+      workspaces.updateTerminal(message.sessionId, message);
+      break;
     case "init":
       workspaces.restore(message.state);
+      workspaces.setCapabilities(message.capabilities);
       break;
     case "action":
       workspaces.performAction(message.action, message.index, message.options);
       break;
+    case "reset":
+      terminals.reset(message.sessionId);
+      break;
     case "data":
-    case "replay":
       terminals.write(message.sessionId, message.data);
+      break;
+    case "replay":
+      terminals.replay(
+        message.sessionId,
+        message.data,
+        message.cols,
+        message.rows,
+      );
       break;
     case "paste":
       if (typeof message.text === "string")

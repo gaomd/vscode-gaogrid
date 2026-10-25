@@ -19,11 +19,11 @@ operation succeeds; cancellation leaves the view unchanged.
 `CwdResolver` resolves directories on demand using recent passive OSC 7 reports,
 process inspection, and the last known directory. `OscCwdParser` only reads OSC 7
 without changing output. Each tab stores one `cwd`; the host merges known session
-directories when saving the layout. Directory reports do not push state updates.
-`hasActiveTask` checks a single OS snapshot when closing. `PtyManager` starts the
+directories when saving the layout. Directory reports checkpoint host metadata and update the webview without changing layout.
+`hasActiveTask` checks a single OS snapshot when closing or promoting. For a protected tab it inspects tmux's pane shell PID, rather than the attach client. `PtyManager` starts the
 shell normally, sends SIGHUP on closure, then reinspects and cleans up confirmed
 surviving PIDs individually. It never signals process groups.
-Layouts use the current storage schema directly, without migration code.
+Saved layouts are validated on recovery, with a fallback to the original v1 storage key. Layout recovery is separate from output snapshots; application commands are never rerun.
 
 ## UI rules
 
@@ -90,3 +90,52 @@ the absolute paths before insertion; file contents are never read or uploaded.
 
 Planned shortcut configuration and session restore work is tracked in the
 [project TODO](../../README.md#todo).
+
+## Protected sessions
+
+`TerminalTab.backend` distinguishes `direct` and `tmux`; backend identifiers and
+creation/update timestamps live in VS Code workspace storage. `TmuxBackend` owns
+capability detection, controlled server configuration, ownership verification,
+history capture, and session creation/destruction. Every protected tab owns one
+tmux session/window/pane, independently of the GaoGrid split tree.
+
+The controller serializes protection with existing creation and close mutations.
+Busy protection can create a separate tab in the original pane using the original
+tab's cwd, even if another tab becomes active while the dialog is open. Idle
+promotion prepares and attaches the candidate backend before a final idle/input
+revision check. Input during that check is buffered. Failure leaves the direct
+PTY usable; successful promotion keeps the existing xterm and tab identity.
+
+On host recovery, tmux history (excluding its live screen) precedes attach's
+screen redraw. Reattachment resets the frontend before that replay; existing
+GaoGrid snapshots are not overlaid on a surviving tmux session. Webview recreation
+replays the existing client buffer without detaching it. Hidden tabs receive the
+visible terminal's pane dimensions. Normal extension shutdown detaches protected
+clients; only the explicit lifecycle close path destroys their tmux sessions.
+
+Tab context menus use the shared menu controller and support Shift+F10. Protection
+controls are absent without tmux. Disconnected protected tabs retain identifiers
+and offer reconnection. Owned orphan sessions are logged and left running.
+**Remove Protection** is available from the tab context menu. It is refused
+while a task is active; after confirmation on an idle shell, it destroys the
+protected session and starts a fresh direct shell in the same tab, restoring the
+captured terminal output before the new shell prompt.
+
+## Output recovery
+
+`TerminalHistory` uses headless xterm plus SerializeAddon to maintain rendered
+cells, colors and up to 10,000 lines of scrollback. It excludes protocol queries
+and application input modes from saved output. Live webview replay separately
+preserves the application's alternate screen and input/mouse modes. An old alternate application
+screen becomes normal text history before starting a fresh direct shell.
+
+`TerminalOutputStore` saves bounded snapshots atomically with same-user file
+permissions under VS Code storage. `PtyManager` checkpoints direct tabs while
+output arrives and flushes on shutdown. Explicit close deletes their snapshots.
+Protected reattachment continues to use tmux as its authoritative recovery source.
+
+Host-to-webview data is published after its headless parse completes. Snapshot
+callbacks form a replay barrier: output before the barrier is included once in
+replay; later output follows as live data. Saved dimensions are applied before
+replay and fitting resumes after the serialized output has been parsed. This
+avoids truncating a raw escape stream or losing output during the handshake.

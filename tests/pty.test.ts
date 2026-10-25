@@ -229,3 +229,35 @@ test("hangup precedes cleanup of stubborn descendants and leaves unrelated proce
   assert.equal(running(unrelated.pid!), true);
   assert.match(await readFile(events, "utf8"), /^H+T/);
 });
+
+test("recovery creates a fresh direct shell once; webview reconnect reuses the current PTY", async (t) => {
+  if (process.platform === "win32") return t.skip("POSIX shell");
+  const root = await realpath(
+    await mkdtemp(join(tmpdir(), "gaogrid-recovery-")),
+  );
+  const manager = new PtyManager(() => {}, {
+    defaultShell: () => "/bin/bash",
+    defaultDirectories: () => [root],
+    environment: { ...process.env, HOME: root },
+  });
+  t.after(async () => {
+    await manager.closeAll();
+    await rm(root, { recursive: true, force: true });
+  });
+  await manager.start("recovered", root, "/bin/bash", true);
+  manager.input("recovered", "printf 'LIVE_%s' 'MARKER'\r");
+  await until(
+    () => manager.output("recovered")?.includes("LIVE_MARKER") || false,
+  );
+  const output = manager.output("recovered");
+  assert.match(output!, /Previous Direct Session ended/);
+  await manager.start("recovered", root, "/bin/bash", true);
+  assert.ok(manager.output("recovered")?.startsWith(output!));
+  assert.equal(
+    manager.output("recovered")?.split("Previous Direct Session ended").length,
+    2,
+  );
+  assert.equal(manager.metadata("recovered")?.cwd, root);
+  assert.equal(manager.metadata("recovered")?.profile, "/bin/bash");
+  assert.equal(manager.metadata("recovered")?.backend, "direct");
+});

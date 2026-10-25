@@ -21,7 +21,9 @@ import type {
   CloseScope,
   LifecycleRequest,
   LifecycleResult,
+  TerminalMetadata,
   NewTerminalOptions,
+  BackendCapabilities,
 } from "../terminal-protocol";
 
 interface WorkspaceBridge {
@@ -36,6 +38,7 @@ const makeTab = (cwd: string): TerminalTab => ({
   title: "terminal",
   cwd,
   sessionId: id(),
+  backend: "direct",
 });
 const makePane = (cwd: string): PaneNode => {
   const tab = makeTab(cwd);
@@ -52,6 +55,7 @@ const makePane = (cwd: string): PaneNode => {
 export class WorkspaceController {
   private state: PersistedState = { workspaces: [], activeWorkspaceId: "" };
   private readonly view: Pick<WorkspaceView, "update" | "setFocusedPane">;
+  private capabilities: BackendCapabilities = { tmux: { available: false } };
   private mutations: Promise<void> = Promise.resolve();
 
   // Serialize lifecycle mutations; switching/focusing terminals stays immediate.
@@ -78,6 +82,9 @@ export class WorkspaceController {
       closeWorkspace: (workspaceId) => this.closeWorkspace(workspaceId),
       focusPane: (paneId) => this.focusPane(paneId),
       createTab: (paneId) => this.createTab(paneId),
+      protectionAvailable: () => this.capabilities.tmux.available,
+      protectTab: (paneId, tabId) => this.protectTab(paneId, tabId),
+      unprotectTab: (paneId, tabId) => this.unprotectTab(paneId, tabId),
       activateTab: (paneId, tabId) => this.activateTab(paneId, tabId),
       closeTab: (paneId, tabId) => this.closeTabs(paneId, tabId),
       reorderTab: (paneId, tabId, targetId) =>
@@ -103,6 +110,33 @@ export class WorkspaceController {
     if (!this.workspace()) state.activeWorkspaceId = state.workspaces[0].id;
     this.renumberWorkspaces();
     this.commit(false);
+  }
+
+  setCapabilities(capabilities: BackendCapabilities) {
+    this.capabilities = capabilities;
+    this.view.update(this.state);
+  }
+
+  updateTerminal(sessionId: string, metadata: TerminalMetadata) {
+    for (const workspace of this.state.workspaces)
+      for (const pane of getPanes(workspace.root)) {
+        const tab = pane.tabs.find((item) => item.sessionId === sessionId);
+        if (!tab) continue;
+        const changed =
+          tab.backend !== metadata.backend ||
+          tab.connectionState !== metadata.connectionState;
+        Object.assign(tab, {
+          cwd: metadata.cwd,
+          profile: metadata.profile,
+          backend: metadata.backend,
+          backendSessionId: metadata.backendSessionId,
+          createdAt: metadata.createdAt,
+          updatedAt: metadata.updatedAt,
+          connectionState: metadata.connectionState,
+        });
+        if (changed) this.view.update(this.state);
+        if (pane.activeTabId === tab.id) pane.lastKnownCwd = metadata.cwd;
+      }
   }
 
   performAction(action: string, index?: number, options?: NewTerminalOptions) {
@@ -260,6 +294,7 @@ export class WorkspaceController {
       if (!pane) {
         pane = makePane(cwd);
         pane.tabs[0].profile = options?.profile;
+        pane.tabs[0].backend = options?.backend || "direct";
         workspace.root = pane;
         workspace.focusedPaneId = pane.id;
         this.commit();
@@ -268,12 +303,72 @@ export class WorkspaceController {
       }
       const tab = makeTab(cwd);
       tab.profile = options?.profile;
+      tab.backend = options?.backend || "direct";
       pane.tabs.push(tab);
       pane.activeTabId = tab.id;
       pane.lastKnownCwd = cwd;
       workspace.focusedPaneId = pane.id;
       this.commit();
       this.startTab(tab);
+    });
+  }
+
+  private protectTab(paneId: string, tabId: string) {
+    this.enqueue(async () => {
+      const workspace = this.state.workspaces.find((item) =>
+        findPane(item.root, paneId),
+      );
+      const pane = findPane(workspace?.root || null, paneId);
+      const source = pane?.tabs.find((tab) => tab.id === tabId);
+      if (!workspace || !pane || !source) return;
+      const value = await this.bridge.request(
+        source.backend === "tmux"
+          ? { kind: "reconnect", sessionId: source.sessionId }
+          : {
+              kind: "protect",
+              sessionId: source.sessionId,
+              canOpenTab: pane.tabs.length < MAX_TABS_PER_PANE,
+            },
+      );
+      if (value === "openProtectedTab") {
+        if (pane.tabs.length >= MAX_TABS_PER_PANE) return;
+        const cwd = (await this.bridge.request({
+          kind: "resolveCwd",
+          sessionId: source.sessionId,
+          lastKnownCwd: source.cwd,
+        })) as string;
+        const tab = makeTab(cwd);
+        tab.backend = "tmux";
+        tab.profile = source.profile;
+        pane.tabs.push(tab);
+        pane.activeTabId = tab.id;
+        pane.lastKnownCwd = cwd;
+        workspace.focusedPaneId = pane.id;
+        this.commit();
+        this.startTab(tab);
+      } else if (value && typeof value === "object") {
+        this.updateTerminal(source.sessionId, value);
+        this.commit();
+      } else this.terminals.focus(source.id);
+    });
+  }
+
+  private unprotectTab(paneId: string, tabId: string) {
+    this.enqueue(async () => {
+      const workspace = this.state.workspaces.find((item) =>
+        findPane(item.root, paneId),
+      );
+      const pane = findPane(workspace?.root || null, paneId);
+      const tab = pane?.tabs.find((item) => item.id === tabId);
+      if (!workspace || !pane || !tab || tab.backend !== "tmux") return;
+      const value = await this.bridge.request({
+        kind: "unprotect",
+        sessionId: tab.sessionId,
+      });
+      if (value && typeof value === "object") {
+        this.updateTerminal(tab.sessionId, value);
+        this.commit();
+      }
     });
   }
 
@@ -376,6 +471,8 @@ export class WorkspaceController {
       sessionId: tab.sessionId,
       cwd: tab.cwd,
       profile: tab.profile,
+      backend: tab.backend,
+      backendSessionId: tab.backendSessionId,
     });
   }
 

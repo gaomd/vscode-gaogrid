@@ -14,7 +14,7 @@ GaoGrid uses Codicons SVG assets for controls. Their paths and scale are preserv
 while their viewBox is centered on the visible artwork. The extension icon adapts
 the terminal icon to a filled silhouette with transparent prompt shapes.
 
-## @xterm/xterm (5.5.0)
+## @xterm/xterm (5.5.0), @xterm/headless (5.5.0), @xterm/addon-serialize (0.13.0)
 
 License: MIT.
 

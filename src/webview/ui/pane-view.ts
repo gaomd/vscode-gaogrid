@@ -1,4 +1,5 @@
 import type { PaneNode } from "../../model";
+import { createIcon } from "./icons";
 import { MAX_TABS_PER_PANE } from "../constants";
 import { TerminalFrontend } from "../terminal-frontend";
 import { createControl, reconcileChildren } from "./controls";
@@ -14,6 +15,7 @@ export class PaneView {
   private readonly tabButtons = new Map<string, HTMLButtonElement>();
   private readonly mounts = new Map<string, HTMLElement>();
   private readonly add: HTMLButtonElement;
+  private readonly shield: HTMLButtonElement;
   private node: PaneNode;
 
   constructor(
@@ -45,7 +47,17 @@ export class PaneView {
     tools.className = "pane-header__actions";
     tools.setAttribute("role", "toolbar");
     tools.setAttribute("aria-label", "Pane actions");
+    this.shield = createControl({
+      label:
+        "Protect Session\n\nMove this idle terminal into a persistent session that survives VS Code restarts.",
+      icon: "shield",
+      onClick: () => {
+        if (this.node.activeTabId)
+          actions.protectTab(this.node.id, this.node.activeTabId);
+      },
+    });
     tools.append(
+      this.shield,
       createControl({
         label: "Split Horizontally",
         icon: "split-horizontal",
@@ -91,6 +103,17 @@ export class PaneView {
   update(node: PaneNode, focused: boolean) {
     this.node = node;
     this.setFocused(focused);
+    const active = node.tabs.find((tab) => tab.id === node.activeTabId);
+    this.shield.hidden = !this.actions.protectionAvailable() || !active;
+    this.shield.disabled =
+      active?.backend === "tmux" && active.connectionState !== "disconnected";
+    this.shield.title =
+      active?.backend === "tmux"
+        ? active.connectionState === "disconnected"
+          ? "Reconnect Protected Session"
+          : "Protected Session\n\nThis terminal is backed by tmux and can survive VS Code restarts."
+        : "Protect Session\n\nMove this idle terminal into a persistent session that survives VS Code restarts.";
+    this.shield.setAttribute("aria-label", this.shield.title);
     this.add.disabled = node.tabs.length >= MAX_TABS_PER_PANE;
     this.add.title = this.add.disabled
       ? "Tab limit reached (9)"
@@ -118,6 +141,15 @@ export class PaneView {
         button.addEventListener("dblclick", () =>
           this.actions.closeTab(this.node.id, tab.id),
         );
+        button.addEventListener("contextmenu", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          this.actions.focusPane(this.node.id);
+          this.menu.open(this.tabMenuItems(tab.id), {
+            x: event.clientX,
+            y: event.clientY,
+          });
+        });
         button.addEventListener("dragstart", (event) => {
           event.dataTransfer?.setData(TAB_DRAG_TYPE, tab.id);
         });
@@ -134,13 +166,35 @@ export class PaneView {
       }
       const selected = tab.id === node.activeTabId;
       button.querySelector(".control__label")!.textContent = `⌘${index + 1}`;
-      button.title = `Terminal ${index + 1} · ⌘${index + 1} · Double-click to close`;
+      const protectedTab = tab.backend === "tmux";
+      const indicator = button.querySelector('[data-icon="shield"]');
+      if (protectedTab && !indicator) button.prepend(createIcon("shield"));
+      if (!protectedTab) indicator?.remove();
+      button.title = protectedTab
+        ? `Protected Session\n\nThis terminal is backed by tmux and can survive VS Code restarts.${tab.connectionState === "disconnected" ? "\nDisconnected. Right-click to reconnect." : ""}`
+        : `Terminal ${index + 1} · ⌘${index + 1} · Double-click to close`;
       button.id = `tab-${tab.id}`;
-      button.setAttribute("aria-label", `Terminal ${index + 1}`);
+      button.setAttribute(
+        "aria-label",
+        `${protectedTab ? "Protected " : ""}Terminal ${index + 1}`,
+      );
       button.setAttribute("aria-selected", String(selected));
       button.setAttribute("aria-controls", `terminal-${tab.id}`);
       button.tabIndex = selected ? 0 : -1;
       button.onkeydown = (event) => {
+        if (
+          event.key === "ContextMenu" ||
+          (event.shiftKey && event.key === "F10")
+        ) {
+          event.preventDefault();
+          event.stopPropagation();
+          const bounds = button!.getBoundingClientRect();
+          this.menu.open(this.tabMenuItems(tab.id), {
+            x: bounds.left,
+            y: bounds.bottom,
+          });
+          return;
+        }
         const offset =
           event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
         if (!offset) return;
@@ -175,6 +229,40 @@ export class PaneView {
 
   setFocused(focused: boolean) {
     this.element.dataset.focused = String(focused);
+  }
+
+  private tabMenuItems(tabId: string): MenuItem[] {
+    const tab = this.node.tabs.find((item) => item.id === tabId)!;
+    const items: MenuItem[] = [];
+    if (tab.backend === "tmux") {
+      items.push({
+        label:
+          tab.connectionState === "disconnected"
+            ? "Reconnect Protected Session"
+            : "Protected Session",
+        icon: "shield",
+        disabled: tab.connectionState !== "disconnected",
+        run: () => this.actions.protectTab(this.node.id, tab.id),
+      });
+      items.push({
+        label: "Remove Protection",
+        icon: "shield",
+        separatorBefore: true,
+        run: () => this.actions.unprotectTab(this.node.id, tab.id),
+      });
+    } else if (this.actions.protectionAvailable())
+      items.push({
+        label: "Protect Session",
+        icon: "shield",
+        run: () => this.actions.protectTab(this.node.id, tab.id),
+      });
+    items.push({
+      label: "Close Tab",
+      icon: "close",
+      separatorBefore: items.length > 0,
+      run: () => this.actions.closeTab(this.node.id, tab.id),
+    });
+    return items;
   }
 
   private menuItems(contextMenu = true): MenuItem[] {
