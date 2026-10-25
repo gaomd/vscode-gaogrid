@@ -1,0 +1,17 @@
+.git/**
+.github/**
+.vscode/**
+.agents/**
+.codex/**
+.gitignore
+.prettierignore
+src/**
+tests/**
+scripts/**
+docs/**
+esbuild.js
+tsconfig.json
+**/*.map
+**/*.pdb
+dist/tests/**
+dist/review-pty.cjs

@@ -2,9 +2,13 @@
   "name": "gaogrid",
   "displayName": "GaoGrid",
   "description": "Terminal-first workspace manager for the Secondary Sidebar.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "gaomd",
   "author": "Mengdi Gao",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gaomd/vscode-gaogrid.git"
+  },
   "license": "MIT",
   "engines": {
     "vscode": "^1.90.0"
