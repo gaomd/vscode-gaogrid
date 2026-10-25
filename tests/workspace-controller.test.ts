@@ -21,6 +21,7 @@ function pane(id: string, cwd: string): PaneNode {
       sessionId: `${id}-s${index}`,
       title: "terminal",
       cwd,
+      backend: "direct",
     })),
   };
 }
@@ -54,6 +55,10 @@ function harness(initial = fixture()) {
   let actions: WorkspaceActions;
   const requests: LifecycleRequest[] = [];
   const disposed: string[] = [];
+  const sent: any[] = [];
+  let protect: (
+    request: LifecycleRequest,
+  ) => Promise<LifecycleResult> = async () => false;
   const focused: string[] = [];
   let close: () => Promise<boolean> = async () => true;
   const controller = new WorkspaceController(
@@ -64,13 +69,17 @@ function harness(initial = fixture()) {
       scheduleFit() {},
     } as unknown as TerminalFrontend,
     {
-      send() {},
+      send(message) {
+        sent.push(message);
+      },
       persist: (value) => {
         state = structuredClone(value);
       },
       request: async (request): Promise<LifecycleResult> => {
         requests.push(request);
         if (request.kind === "close") return close();
+        if (request.kind === "protect" || request.kind === "reconnect")
+          return protect(request);
         const active = initial.workspaces
           .flatMap((workspace) => getTabs(workspace.root))
           .find((tab) => tab.sessionId === request.sessionId);
@@ -92,6 +101,10 @@ function harness(initial = fixture()) {
     controller,
     actions: actions!,
     requests,
+    sent,
+    protection: (callback: typeof protect) => {
+      protect = callback;
+    },
     disposed,
     focused,
     state: () => state,
@@ -227,4 +240,80 @@ test("rapid new-tab requests in an empty workspace share a pane and respect the 
   assert.equal(panes.length, 1);
   assert.equal(panes[0].tabs.length, 9);
   assert.equal(h.disposed.length, 0);
+});
+
+test("protection preserves the right-clicked tab identity and its pane without changing other tabs", async () => {
+  const h = harness();
+  const before = getPanes(h.state().workspaces[0].root)[0].tabs[1];
+  h.protection(async () => ({
+    cwd: "/frontend/nested",
+    profile: "/bin/zsh",
+    backend: "tmux",
+    backendSessionId: "gaogrid-test",
+    connectionState: "connected",
+  }));
+  h.actions.protectTab("a", "a-2");
+  await settled();
+  const panes = getPanes(h.state().workspaces[0].root);
+  assert.equal(panes[0].tabs[1].id, before.id);
+  assert.equal(panes[0].tabs[1].sessionId, before.sessionId);
+  assert.equal(panes[0].tabs[1].title, before.title);
+  assert.equal(panes[0].tabs[1].backend, "tmux");
+  assert.equal(panes[0].tabs[1].cwd, "/frontend/nested");
+  assert.equal(panes[1].tabs[0].backend, "direct");
+  assert.deepEqual(h.disposed, []);
+});
+
+test("busy protection opens a protected tab in the source pane and inherits the source tab cwd", async () => {
+  const h = harness();
+  h.protection(async () => "openProtectedTab");
+  h.actions.protectTab("a", "a-2");
+  await settled();
+  const panes = getPanes(h.state().workspaces[0].root);
+  assert.equal(panes[0].tabs.length, 3);
+  assert.equal(panes[1].tabs.length, 2);
+  const tab = panes[0].tabs[2];
+  assert.equal(tab.backend, "tmux");
+  assert.equal(tab.cwd, "/frontend");
+  assert.deepEqual(h.requests[1], {
+    kind: "resolveCwd",
+    sessionId: "a-s2",
+    lastKnownCwd: "/frontend",
+  });
+  assert.equal(h.sent.at(-1).type, "start");
+  assert.equal(h.sent.at(-1).backend, "tmux");
+  assert.equal(panes[0].tabs[1].backend, "direct");
+  assert.deepEqual(h.disposed, []);
+});
+
+test("cancelling protection preserves the layout, and disconnected protected tabs request reconnection", async () => {
+  const h = harness();
+  const before = structuredClone(h.state());
+  h.actions.protectTab("a", "a-1");
+  await settled();
+  assert.deepEqual(h.state(), before);
+  h.controller.updateTerminal("a-s1", {
+    cwd: "/frontend",
+    profile: "/bin/bash",
+    backend: "tmux",
+    backendSessionId: "gaogrid-test",
+    connectionState: "disconnected",
+  });
+  h.actions.protectTab("a", "a-1");
+  await settled();
+  assert.equal(h.requests.at(-1)?.kind, "reconnect");
+});
+
+test("the backend creation API accepts tmux directly without first creating a direct PTY", async () => {
+  const h = harness();
+  h.controller.performAction("newTab", undefined, {
+    backend: "tmux",
+    cwd: "/explicit",
+  });
+  await settled();
+  assert.equal(h.sent.at(-1).backend, "tmux");
+  assert.equal(
+    getPanes(h.state().workspaces[0].root)[1].tabs.at(-1)?.backend,
+    "tmux",
+  );
 });

@@ -1,3 +1,5 @@
+import shield from "@vscode/codicons/src/icons/shield.svg";
+import close from "@vscode/codicons/src/icons/close.svg";
 import add from "@vscode/codicons/src/icons/add.svg";
 import copy from "@vscode/codicons/src/icons/copy.svg";
 import ellipsis from "@vscode/codicons/src/icons/ellipsis.svg";
@@ -5,6 +7,8 @@ import splitHorizontal from "@vscode/codicons/src/icons/split-horizontal.svg";
 import splitVertical from "@vscode/codicons/src/icons/split-vertical.svg";
 
 const sources = {
+  shield,
+  close,
   add,
   copy,
   ellipsis,

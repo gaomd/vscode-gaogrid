@@ -7,7 +7,10 @@ async function main() {
     name.endsWith(".test.ts"),
   );
   await build({
-    entryPoints: names.map((name) => `tests/${name}`),
+    entryPoints: [
+      ...names.map((name) => `tests/${name}`),
+      "tests/fixtures/protected-host.ts",
+    ],
     outdir: "dist/tests",
     bundle: true,
     platform: "node",

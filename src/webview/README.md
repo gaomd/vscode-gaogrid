@@ -20,7 +20,7 @@ operation succeeds; cancellation leaves the view unchanged.
 process inspection, and the last known directory. `OscCwdParser` only reads OSC 7
 without changing output. Each tab stores one `cwd`; the host merges known session
 directories when saving the layout. Directory reports checkpoint host metadata and update the webview without changing layout.
-`hasActiveTask` checks a single OS snapshot when closing. `PtyManager` starts the
+`hasActiveTask` checks a single OS snapshot when closing or promoting. For a protected tab it inspects tmux's pane shell PID, rather than the attach client. `PtyManager` starts the
 shell normally, sends SIGHUP on closure, then reinspects and cleans up confirmed
 surviving PIDs individually. It never signals process groups.
 Saved layouts are validated on recovery, with a fallback to the original v1 storage key. Only metadata is recovered; application commands are never replayed.
@@ -90,3 +90,29 @@ the absolute paths before insertion; file contents are never read or uploaded.
 
 Planned shortcut configuration and session restore work is tracked in the
 [project TODO](../../README.md#todo).
+
+## Protected sessions
+
+`TerminalTab.backend` distinguishes `direct` and `tmux`; backend identifiers and
+creation/update timestamps live in VS Code workspace storage. `TmuxBackend` owns
+capability detection, controlled server configuration, ownership verification,
+history capture, and session creation/destruction. Every protected tab owns one
+tmux session/window/pane, independently of the GaoGrid split tree.
+
+The controller serializes protection with existing creation and close mutations.
+Busy protection can create a separate tab in the original pane using the original
+tab's cwd, even if another tab becomes active while the dialog is open. Idle
+promotion prepares and attaches the candidate backend before a final idle/input
+revision check. Input during that check is buffered. Failure leaves the direct
+PTY usable; successful promotion keeps the existing xterm and tab identity.
+
+On host recovery, tmux history (excluding its live screen) precedes attach's
+screen redraw. Reattachment resets the frontend before that replay; existing
+GaoGrid snapshots are not overlaid on a surviving tmux session. Webview recreation
+replays the existing client buffer without detaching it. Hidden tabs receive the
+visible terminal's pane dimensions. Normal extension shutdown detaches protected
+clients; only the explicit lifecycle close path destroys their tmux sessions.
+
+Tab context menus use the shared menu controller and support Shift+F10. Protection
+controls are absent without tmux. Disconnected protected tabs retain identifiers
+and offer reconnection. Owned orphan sessions are logged and left running.

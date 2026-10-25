@@ -57,15 +57,40 @@ Fully detached daemons and long-running shell builtins without child processes
 are not detected. Close warnings are unavailable when process inspection is
 denied, including on Windows.
 
-## Current persistence
+## Session recovery
 
-GaoGrid restores workspaces, split layouts, pane sizes, tabs, and working
-directories. Terminal processes stay alive while the extension is running;
-restarting VS Code recreates the shells in their saved directories. GaoGrid
-checkpoints cwd and shell metadata in VS Code workspace storage, including passive
-OSC 7 reports when the shell provides them. A restored direct tab reports that its
-previous process ended and a fresh shell was started; it never reruns an application.
-Recreating only the webview reuses the existing PTYs and their buffered output.
+GaoGrid restores workspaces, split layouts, pane sizes, tab identities, cwd, and
+shell metadata from VS Code workspace storage. Recreating only the webview reuses
+live PTYs and buffered output.
+
+New tabs use **Direct Sessions** by default. After VS Code or the Extension Host
+restarts, a direct tab starts a fresh shell in its saved cwd and reports that the
+previous process ended. GaoGrid never automatically reruns applications.
+
+When `tmux -V` succeeds in the terminal's execution environment, right-click a tab
+and choose **Protect Session**, or click its pane's shield button. The shell must
+be idle; protect it before starting Codex, Claude Code, a server, or a long task.
+If it is busy, **Open Protected Tab** creates a separate protected tab in the same
+pane and inherits the source terminal's cwd. The running terminal stays untouched.
+
+A shield marks a **Protected Session**. It has its own tmux-owned process and
+continues running through VS Code quit, reload, or Extension Host restart. GaoGrid
+reattaches to that same session and uses tmux history as the recovery source.
+Right-click a disconnected protected tab to reconnect. Closing a protected tab
+explicitly destroys its session; a busy tab asks for confirmation. Closing a
+workspace uses one combined confirmation. Quitting VS Code only detaches.
+
+GaoGrid uses an isolated `tmux -L gaogrid` server with its own configuration,
+without loading `~/.tmux.conf` or touching the user's normal tmux server. When
+tmux is absent, the shield and protection menu are absent and direct tabs work
+normally. For Remote SSH and Dev Containers, tmux runs in the workspace extension
+host, alongside the terminal processes.
+
+tmux does **not** survive an OS reboot. If a saved session is missing, GaoGrid
+preserves the tab and layout, starts a fresh protected shell in the saved cwd,
+and reports the loss. It never automatically resumes Codex or Claude. Direct
+sessions remain the preferred path for maximum graphics compatibility. See
+[protected session compatibility and validation](docs/protected-sessions.md).
 
 ## Development
 
@@ -98,10 +123,8 @@ They also check conservative residual cleanup.
 
 Next steps:
 
-- [ ] **Session restore:** Plan terminal state restoration and
-      reconnection to surviving sessions. Define behavior across extension reloads
-      and VS Code restarts, keeping session ownership separate from workspace
-      layout.
+- [x] **Session restore:** Restore layout/cwd metadata and reconnect explicitly
+      protected terminal processes through an isolated tmux server.
 - [ ] **Move tabs between panes and workspaces:** Move terminal tabs to another
       pane, to a new workspace, or to a pane in another workspace, preserving
       their live terminal sessions.

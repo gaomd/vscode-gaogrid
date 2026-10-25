@@ -257,8 +257,7 @@ test("recovery creates a fresh direct shell once; webview reconnect reuses the c
     manager.output("recovered")?.split("Previous Direct Session ended").length,
     2,
   );
-  assert.deepEqual(manager.metadata("recovered"), {
-    cwd: root,
-    profile: "/bin/bash",
-  });
+  assert.equal(manager.metadata("recovered")?.cwd, root);
+  assert.equal(manager.metadata("recovered")?.profile, "/bin/bash");
+  assert.equal(manager.metadata("recovered")?.backend, "direct");
 });

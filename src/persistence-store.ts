@@ -65,6 +65,15 @@ function restoreNode(value: unknown, depth = 0): LayoutNode | null {
             title: typeof tab.title === "string" ? tab.title : "terminal",
             cwd: typeof tab.cwd === "string" ? tab.cwd : "",
             profile: typeof tab.profile === "string" ? tab.profile : undefined,
+            backend: tab.backend === "tmux" ? "tmux" : "direct",
+            backendSessionId:
+              tab.backend === "tmux" && typeof tab.backendSessionId === "string"
+                ? tab.backendSessionId
+                : undefined,
+            createdAt:
+              typeof tab.createdAt === "number" ? tab.createdAt : undefined,
+            updatedAt:
+              typeof tab.updatedAt === "number" ? tab.updatedAt : undefined,
           },
         ];
       })

@@ -6,6 +6,8 @@ export interface WorkspaceActions {
   closeWorkspace(workspaceId: string): void;
   focusPane(paneId: string): void;
   createTab(paneId: string): void;
+  protectionAvailable(): boolean;
+  protectTab(paneId: string, tabId: string): void;
   activateTab(paneId: string, tabId: string): void;
   closeTab(paneId: string, tabId: string): void;
   reorderTab(paneId: string, tabId: string, targetTabId: string): void;

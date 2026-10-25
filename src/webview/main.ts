@@ -47,9 +47,13 @@ window.addEventListener("message", ({ data: message }) => {
       break;
     case "init":
       workspaces.restore(message.state);
+      workspaces.setCapabilities(message.capabilities);
       break;
     case "action":
       workspaces.performAction(message.action, message.index, message.options);
+      break;
+    case "reset":
+      terminals.reset(message.sessionId);
       break;
     case "data":
     case "replay":

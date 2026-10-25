@@ -20,12 +20,18 @@ export interface PaneNode {
   tabs: TerminalTab[];
   lastKnownCwd?: string;
 }
+export type TerminalBackendType = "direct" | "tmux";
 export interface TerminalTab {
   id: string;
   title: string;
   cwd: string;
   profile?: string;
   sessionId: string;
+  backend: TerminalBackendType;
+  backendSessionId?: string;
+  createdAt?: number;
+  updatedAt?: number;
+  connectionState?: "connected" | "disconnected";
 }
 export interface PersistedState {
   workspaces: Workspace[];

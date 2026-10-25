@@ -144,6 +144,12 @@ export class TerminalFrontend {
       );
   }
 
+  reset(sessionId: string) {
+    this.pendingOutput.delete(sessionId);
+    const tabId = this.sessionTabs.get(sessionId);
+    if (tabId) this.surfaces.get(tabId)?.terminal.reset();
+  }
+
   paste(sessionId: string, text: string) {
     const tabId = this.sessionTabs.get(sessionId);
     const surface = tabId ? this.surfaces.get(tabId) : undefined;
@@ -238,6 +244,14 @@ export class TerminalFrontend {
         );
       }
       surface.fit.fit();
+      for (const hidden of this.surfaces.values()) {
+        if (
+          hidden !== surface &&
+          hidden.host.hidden &&
+          hidden.host.parentElement === surface.host.parentElement
+        )
+          hidden.terminal.resize(surface.terminal.cols, surface.terminal.rows);
+      }
       surface.scrollbar?.sync();
       surface.terminal.refresh(0, surface.terminal.rows - 1);
     }

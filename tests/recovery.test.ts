@@ -8,6 +8,10 @@ const tab = {
   title: "Codex",
   cwd: "/saved",
   profile: "/bin/zsh",
+  backend: "direct",
+  backendSessionId: undefined,
+  createdAt: undefined,
+  updatedAt: undefined,
 };
 const pane = {
   type: "pane",
@@ -84,4 +88,25 @@ test("recovery repairs stale selection and only restores metadata, never command
   if (root?.type !== "pane") return;
   assert.equal(root.activeTabId, "tab");
   assert.deepEqual(root.tabs, [tab]);
+});
+
+test("protected recovery restores backend identifiers and timestamps, never stale connection state", () => {
+  const saved = {
+    ...tab,
+    backend: "tmux",
+    backendSessionId: "gaogrid-id",
+    createdAt: 123,
+    updatedAt: 456,
+    connectionState: "connected",
+  };
+  const result = restoreState({
+    workspaces: [{ id: "ws", root: { ...pane, tabs: [saved] } }],
+  });
+  const root = result.workspaces[0].root;
+  if (root?.type !== "pane") throw new Error("missing pane");
+  assert.equal(root.tabs[0].backend, "tmux");
+  assert.equal(root.tabs[0].backendSessionId, "gaogrid-id");
+  assert.equal(root.tabs[0].createdAt, 123);
+  assert.equal(root.tabs[0].updatedAt, 456);
+  assert.equal(root.tabs[0].connectionState, undefined);
 });
