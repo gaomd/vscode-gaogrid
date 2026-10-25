@@ -21,7 +21,11 @@ export function resolveShortcut(
     if (key === "+" || key === "=") return { action: "increaseFontSize" };
     if (key === "-") return { action: "decreaseFontSize" };
     if (key === "0" && !event.shiftKey) return { action: "resetFontSize" };
-    if (event.shiftKey) return;
+    if (event.shiftKey) {
+      if (key === "[" || key === "{") return { action: "previousTab" };
+      if (key === "]" || key === "}") return { action: "nextTab" };
+      return;
+    }
     const action = (
       { n: "newWorkspace", t: "newTab", w: "closeTab" } as Record<
         string,

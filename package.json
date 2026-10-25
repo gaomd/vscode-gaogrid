@@ -41,6 +41,14 @@
         "title": "GaoGrid: Switch Terminal Tab"
       },
       {
+        "command": "gaogrid.previousTab",
+        "title": "GaoGrid: Previous Terminal Tab"
+      },
+      {
+        "command": "gaogrid.nextTab",
+        "title": "GaoGrid: Next Terminal Tab"
+      },
+      {
         "command": "gaogrid.increaseFontSize",
         "title": "GaoGrid: Increase Terminal Font Size"
       },
@@ -180,6 +188,16 @@
       {
         "command": "gaogrid.increaseFontSize",
         "key": "cmd+=",
+        "when": "gaogridFocus"
+      },
+      {
+        "command": "gaogrid.previousTab",
+        "key": "cmd+shift+[",
+        "when": "gaogridFocus"
+      },
+      {
+        "command": "gaogrid.nextTab",
+        "key": "cmd+shift+]",
         "when": "gaogridFocus"
       },
       {

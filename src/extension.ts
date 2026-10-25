@@ -191,6 +191,8 @@ export function activate(context: vscode.ExtensionContext) {
     ),
   );
   for (const action of [
+    "previousTab",
+    "nextTab",
     "increaseFontSize",
     "decreaseFontSize",
     "resetFontSize",

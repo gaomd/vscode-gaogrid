@@ -107,6 +107,16 @@ export class WorkspaceController {
       const pane = this.focusedPane();
       const tab = pane?.tabs[(index || 0) - 1];
       if (pane && tab) this.activateTab(pane.id, tab.id);
+    } else if (action === "previousTab" || action === "nextTab") {
+      const pane = this.focusedPane();
+      if (!pane?.tabs.length) return;
+      const current = pane.tabs.findIndex((tab) => tab.id === pane.activeTabId);
+      const direction = action === "nextTab" ? 1 : -1;
+      const next =
+        current < 0
+          ? 0
+          : (current + direction + pane.tabs.length) % pane.tabs.length;
+      this.activateTab(pane.id, pane.tabs[next].id);
     }
   }
 

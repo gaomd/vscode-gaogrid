@@ -24,8 +24,12 @@ Keyboard shortcuts apply while GaoGrid has focus:
 | `⌘W`        | Close the focused pane's active tab       |
 | `Ctrl+1–9`  | Switch workspace                          |
 | `⌘1–9`      | Switch tab in the focused pane            |
+| `⌘⇧[`       | Previous tab in the focused pane          |
+| `⌘⇧]`       | Next tab in the focused pane              |
 | `⌘+` / `⌘-` | Adjust the focused terminal's font size   |
 | `⌘0`        | Restore the configured terminal font size |
+
+Tab cycling wraps at the first and last tabs.
 
 Inside a terminal, `Shift+Enter` sends a distinct key sequence so Codex can insert
 a newline without submitting the prompt.
