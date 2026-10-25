@@ -2,6 +2,14 @@
 
 All notable changes to GaoGrid are documented here.
 
+## [0.2.1] - 2026-10-26
+
+- Add a Marketplace icon using the existing terminal artwork.
+- Simplify the view title to show **GaoGrid** instead of **GaoGrid: Workspace**.
+- Update the extension description and introduction to reflect support for
+  VS Code and compatible editors, with inspiration from cmux and herdr.
+- Add packaging and release commands with a documented publishing workflow.
+
 ## [0.2.0] - 2026-10-26
 
 This is the first release of GaoGrid. It adds terminal workspaces to the VS Code
