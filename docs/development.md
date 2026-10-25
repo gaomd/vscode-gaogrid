@@ -1,4 +1,31 @@
-# GaoGrid webview
+# Development
+
+Use VS Code, Node.js 20 or later, and npm.
+
+```sh
+npm ci
+npm run compile
+npm run typecheck
+npm test
+npm run format:check
+```
+
+Open the project in VS Code and press `F5` using the **Run GaoGrid Extension**
+launch configuration. This opens an Extension Development Host with GaoGrid
+loaded.
+
+Run `npm run watch` to rebuild changes automatically. Use **Developer: Reload
+Webviews** in the development window to load updated webview code while keeping
+the extension host and terminal processes running. Restart the debugging session
+to load changes to extension host code.
+
+The tests exercise cwd fallback and traversal permissions, passive OSC parsing,
+close-time task detection, cancelled and aggregate close operations, layout
+mutations, and real zsh/bash PTYs. The PTY tests require process inspection and
+process directory queries; restricted sandboxes must allow these operations.
+They also check conservative residual cleanup.
+
+## Webview Architecture And UI
 
 The webview has three layers:
 
@@ -25,7 +52,7 @@ shell normally, sends SIGHUP on closure, then reinspects and cleans up confirmed
 surviving PIDs individually. It never signals process groups.
 Saved layouts are validated on recovery, with a fallback to the original v1 storage key. Layout recovery is separate from output snapshots; application commands are never rerun.
 
-## UI rules
+### UI Rules
 
 - Use `createControl` for tab labels, workspace labels, and icon actions.
 - Controls are 20px high, with 12px workspace/tab labels and 14px icons. Pane headers
@@ -94,10 +121,9 @@ name list.
 Other unresolved drops use a native picker. File contents are never read or
 uploaded, and the general clipboard is never accessed.
 
-Planned shortcut configuration and session restore work is tracked in the
-[project TODO](../../README.md#todo).
+Planned work is tracked in the [project TODO](../README.md#todo).
 
-## Protected sessions
+### Protected Sessions
 
 `TerminalTab.backend` distinguishes `direct` and `tmux`; backend identifiers and
 creation/update timestamps live in VS Code workspace storage. `TmuxBackend` owns
@@ -127,7 +153,7 @@ while a task is active; after confirmation on an idle shell, it destroys the
 protected session and starts a fresh direct shell in the same tab, restoring the
 captured terminal output before the new shell prompt.
 
-## Output recovery
+### Output Recovery
 
 `TerminalHistory` uses headless xterm plus SerializeAddon to maintain rendered
 cells, colors and up to 10,000 lines of scrollback. It excludes protocol queries
