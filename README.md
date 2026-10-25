@@ -6,6 +6,16 @@ inspired by [cmux](https://cmux.com/) and [herdr](https://herdr.dev/).
 Organize your terminals into workspaces, split panes, and tabs in the Secondary
 Sidebar.
 
+## Installation
+
+Install GaoGrid from the
+[VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=gaomd.gaogrid),
+or run:
+
+```sh
+code --install-extension gaomd.gaogrid
+```
+
 ## Usage
 
 Open GaoGrid in the Secondary Sidebar to create workspaces, split panes, and open
