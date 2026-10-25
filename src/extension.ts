@@ -8,6 +8,7 @@ import { PersistedState } from "./model";
 import { getPanes, getTabs } from "./webview/layout";
 import { resolveCwd, validDirectory } from "./cwd-resolver";
 import { TerminalLifecycle } from "./terminal-lifecycle";
+import { nativeDroppedPaths } from "./native-drop";
 import type {
   LifecycleRequest,
   NewTerminalOptions,
@@ -15,6 +16,12 @@ import type {
   LifecycleResult,
 } from "./terminal-protocol";
 import { STATE_KEY, LEGACY_STATE_KEY, restoreState } from "./persistence-store";
+
+interface NativeDropCandidate {
+  names: string[];
+  startedAt: number;
+  paths: Promise<string[]>;
+}
 
 let shutdown: (() => Promise<void>) | undefined;
 export function activate(context: vscode.ExtensionContext) {
@@ -26,6 +33,7 @@ export function activate(context: vscode.ExtensionContext) {
     context.workspaceState.get(STATE_KEY) ??
       context.workspaceState.get(LEGACY_STATE_KEY),
   );
+  const nativeDropCandidates = new Map<string, NativeDropCandidate>();
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
   let stopping = false;
   const log = vscode.window.createOutputChannel("GaoGrid");
@@ -321,6 +329,22 @@ export function activate(context: vscode.ExtensionContext) {
           case "input":
             manager.input(message.sessionId, message.data);
             break;
+          case "nativeDropCandidate": {
+            if (typeof message.sessionId === "string") {
+              const names: string[] = Array.isArray(message.names)
+                ? message.names.filter(
+                    (name: unknown): name is string => typeof name === "string",
+                  )
+                : [];
+              if (names.length)
+                nativeDropCandidates.set(message.sessionId, {
+                  names,
+                  startedAt: Date.now(),
+                  paths: nativeDroppedPaths(names),
+                });
+            }
+            break;
+          }
           case "dropPaths": {
             const resources: unknown[] = Array.isArray(message.resources)
               ? message.resources
@@ -328,11 +352,24 @@ export function activate(context: vscode.ExtensionContext) {
             const paths = resources
               .map(droppedPath)
               .filter((value): value is string => !!value);
+            const names: string[] = Array.isArray(message.names)
+              ? message.names.filter(
+                  (name: unknown): name is string => typeof name === "string",
+                )
+              : [];
+            const candidate = nativeDropCandidates.get(message.sessionId);
+            nativeDropCandidates.delete(message.sessionId);
             if (
               !paths.length &&
-              Array.isArray(message.names) &&
-              message.names.length
-            ) {
+              names.length &&
+              candidate &&
+              Date.now() - candidate.startedAt < 5000 &&
+              sameDropNames(candidate.names, names)
+            )
+              paths.push(...(await candidate.paths));
+            else if (!paths.length && names.length)
+              paths.push(...(await nativeDroppedPaths(names)));
+            if (!paths.length && names.length) {
               // Sandboxed webviews may receive file names without absolute paths.
               const selected = await vscode.window.showOpenDialog({
                 title: "Select dropped files or folders to insert their paths",
@@ -516,6 +553,24 @@ function droppedPath(resource: unknown): string | undefined {
   }
   return undefined;
 }
+
+function sameDropNames(first: string[], second: string[]) {
+  if (first.length !== second.length) return false;
+  const counts = new Map<string, number>();
+  for (const name of first) {
+    const normalized = name.normalize("NFC");
+    counts.set(normalized, (counts.get(normalized) || 0) + 1);
+  }
+  for (const name of second) {
+    const normalized = name.normalize("NFC");
+    const count = counts.get(normalized);
+    if (!count) return false;
+    if (count === 1) counts.delete(normalized);
+    else counts.set(normalized, count - 1);
+  }
+  return counts.size === 0;
+}
+
 function terminalSettings() {
   const c = vscode.workspace.getConfiguration("terminal.integrated");
   const editor = vscode.workspace.getConfiguration("editor");

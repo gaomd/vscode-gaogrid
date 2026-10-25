@@ -261,10 +261,17 @@ export class TerminalFrontend {
     terminal: Terminal,
     sessionId: string,
   ) {
-    return installTerminalDrop(host, (resources, names) => {
-      terminal.focus();
-      this.send({ type: "dropPaths", sessionId, resources, names });
-    });
+    return installTerminalDrop(
+      host,
+      (resources, names) => {
+        terminal.focus();
+        this.send({ type: "dropPaths", sessionId, resources, names });
+      },
+      (names) => {
+        if (names.length)
+          this.send({ type: "nativeDropCandidate", sessionId, names });
+      },
+    );
   }
 
   private fitVisible() {

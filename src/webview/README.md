@@ -84,9 +84,15 @@ Font loading clears glyph textures before refitting so fallback glyphs are not
 cached after the configured font becomes available.
 
 File and folder drops insert shell-quoted paths through xterm's paste API, with
-no trailing newline. VS Code resource drags and file URI lists resolve directly.
-If a sandboxed external file drag exposes only names, a native picker resolves
-the absolute paths before insertion; file contents are never read or uploaded.
+no trailing newline. Drop payload formats are read synchronously in the drop
+handler; VS Code's `resourceurls` format is preferred to preserve multi-file
+and folder selections. Webviews can only handle Explorer drops that the
+workbench forwards, so Explorer's **Copy Path** command is the fallback when a
+VS Code build suppresses a drag. When macOS exposes only names, `native-drop.ts`
+reads file URLs from the drag pasteboard using AppKit and checks the complete
+name list.
+Other unresolved drops use a native picker. File contents are never read or
+uploaded, and the general clipboard is never accessed.
 
 Planned shortcut configuration and session restore work is tracked in the
 [project TODO](../../README.md#todo).

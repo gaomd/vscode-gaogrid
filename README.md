@@ -36,6 +36,14 @@ a newline without submitting the prompt.
 
 Terminal fonts and colors follow VS Code's terminal settings and current theme.
 
+Drop files or folders from Finder onto a terminal to insert their absolute paths.
+Explorer drops read VS Code's resource URI payload synchronously and insert
+shell-quoted paths into the terminal without submitting the command. Webviews
+only receive drops that the VS Code workbench forwards; if a VS Code version
+suppresses Explorer drags, use the Explorer context menu's **Copy Path** and
+paste into the terminal. If the runtime cannot resolve a Finder drop, a file
+picker lets you select the paths.
+
 New tabs and split panes start in the active terminal's current directory. If it
 is unavailable, GaoGrid tries the pane's last known directory, the current VS Code
 workspace folder, then your home directory. Deleted or inaccessible directories
