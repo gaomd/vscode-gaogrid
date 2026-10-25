@@ -84,6 +84,7 @@ export class WorkspaceController {
       createTab: (paneId) => this.createTab(paneId),
       protectionAvailable: () => this.capabilities.tmux.available,
       protectTab: (paneId, tabId) => this.protectTab(paneId, tabId),
+      unprotectTab: (paneId, tabId) => this.unprotectTab(paneId, tabId),
       activateTab: (paneId, tabId) => this.activateTab(paneId, tabId),
       closeTab: (paneId, tabId) => this.closeTabs(paneId, tabId),
       reorderTab: (paneId, tabId, targetId) =>
@@ -349,6 +350,25 @@ export class WorkspaceController {
         this.updateTerminal(source.sessionId, value);
         this.commit();
       } else this.terminals.focus(source.id);
+    });
+  }
+
+  private unprotectTab(paneId: string, tabId: string) {
+    this.enqueue(async () => {
+      const workspace = this.state.workspaces.find((item) =>
+        findPane(item.root, paneId),
+      );
+      const pane = findPane(workspace?.root || null, paneId);
+      const tab = pane?.tabs.find((item) => item.id === tabId);
+      if (!workspace || !pane || !tab || tab.backend !== "tmux") return;
+      const value = await this.bridge.request({
+        kind: "unprotect",
+        sessionId: tab.sessionId,
+      });
+      if (value && typeof value === "object") {
+        this.updateTerminal(tab.sessionId, value);
+        this.commit();
+      }
     });
   }
 

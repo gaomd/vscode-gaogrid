@@ -40,6 +40,13 @@ session after any required task confirmation. Closing a workspace uses one
 combined confirmation. VS Code shutdown detaches and leaves protected sessions
 running.
 
+To remove protection, choose **Remove Protection** from the tab's context menu
+while no task is running. GaoGrid refuses while a task is active. After
+confirmation, it destroys the tmux session and starts a fresh direct shell in
+the current directory, keeping the GaoGrid tab identity and restoring captured
+terminal output before the new shell prompt. This is an explicit
+destroy-and-recreate operation, not a live backend downgrade.
+
 GaoGrid uses an isolated `tmux -L gaogrid` server and its own configuration. It
 does not load `~/.tmux.conf` or touch the user's normal tmux server. If tmux is
 unavailable, protection controls are omitted and direct terminals work

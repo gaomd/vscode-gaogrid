@@ -47,6 +47,7 @@ export class PtyManager {
   >();
   private readonly backends = new Map<string, TerminalMetadata>();
   private readonly recoveryOutput = new Map<string, string>();
+  private readonly initialOutput = new Map<string, string>();
   private readonly sizes = new Map<string, { cols: number; rows: number }>();
   private stopping = false;
   readonly tmux: TmuxBackend;
@@ -134,7 +135,7 @@ export class PtyManager {
     };
     this.backends.set(sessionId, metadata);
     try {
-      let prefix = "";
+      let prefix = this.initialOutput.get(sessionId) || "";
       let pane;
       if (
         recovering &&
@@ -209,6 +210,7 @@ export class PtyManager {
       if (metadata.backend === "tmux")
         await this.waitForAttach(metadata.backendSessionId!, session);
       this.sessions.set(sessionId, session);
+      this.initialOutput.delete(sessionId);
       this.recoveryOutput.delete(sessionId);
       const currentSize = this.sizes.get(sessionId) || size;
       this.resize(sessionId, currentSize.cols, currentSize.rows);
@@ -372,6 +374,10 @@ export class PtyManager {
       if (!(await this.idle(original)) || original.inputRevision !== revision)
         return;
       const previousScreen = await original.history.snapshot();
+      // A new tmux client enters the alternate screen. Keep its initial shell
+      // redraw in the existing main buffer so Direct-session scrollback remains
+      // visible above it. Later application alternate-screen changes pass through.
+      candidate.output = candidate.output.replace("\x1b[?1049h", "");
       candidate.history.dispose();
       candidate.history = new TerminalHistory(
         previousScreen.cols,
@@ -550,6 +556,47 @@ export class PtyManager {
     await Promise.all(sessionIds.map((id) => this.starting.get(id)));
     const processes = await inspectProcesses();
     await Promise.all(sessionIds.map((id) => this.close(id, processes)));
+  }
+
+  /** Explicitly destroys a protected session and replaces it with a fresh direct shell. */
+  async unprotect(sessionId: string): Promise<TerminalMetadata | undefined> {
+    const metadata = this.backends.get(sessionId);
+    if (metadata?.backend !== "tmux")
+      throw new Error("Terminal is not a protected session.");
+    if ((await this.activeTasks([sessionId])).has(sessionId))
+      throw new Error(
+        "Cannot remove protection while a task is running. Wait until the terminal returns to the shell prompt.",
+      );
+    const session = this.sessions.get(sessionId);
+    const currentSize = this.sizes.get(sessionId) || { cols: 80, rows: 24 };
+    let preservedSnapshot: OutputSnapshot;
+    if (session && !session.exited)
+      preservedSnapshot = await session.history.snapshot();
+    else {
+      const history = new TerminalHistory(currentSize.cols, currentSize.rows);
+      try {
+        history.write(await this.tmux.capture(metadata.backendSessionId!));
+        preservedSnapshot = await history.snapshot();
+      } finally {
+        history.dispose();
+      }
+    }
+    const cwd = (await this.cwd(sessionId)) || metadata.cwd;
+    const profile = metadata.profile;
+    const size = this.sizes.get(sessionId);
+    await this.closeSessions([sessionId]);
+    this.sizes.set(sessionId, size || currentSize);
+    this.initialOutput.set(sessionId, preservedSnapshot.data);
+    try {
+      await this.options.outputStore?.save(sessionId, preservedSnapshot);
+    } catch (error) {
+      this.options.log?.(
+        `Could not preserve output while removing protection: ${String(error)}`,
+      );
+    }
+    this.emit({ type: "reset", sessionId });
+    await this.start(sessionId, cwd, profile, false, { backend: "direct" });
+    return this.metadata(sessionId);
   }
   private async close(sessionId: string, processes?: ProcessInfo[]) {
     const session = this.sessions.get(sessionId);

@@ -158,6 +158,20 @@ export class TmuxBackend {
     ]);
     return output.replace(/\r?\n/g, "\r\n") + "\r\n".repeat(rows);
   }
+  async capture(id: string) {
+    if (!(await this.inspect(id)))
+      throw new Error("Protected session is no longer available.");
+    const output = await this.run([
+      "capture-pane",
+      "-p",
+      "-e",
+      "-t",
+      `${this.target(id)}:0.0`,
+      "-S",
+      "-10000",
+    ]);
+    return output.replace(/\r?\n/g, "\r\n");
+  }
   async destroy(id: string) {
     if (await this.inspect(id))
       await this.run(["kill-session", "-t", this.target(id)]);

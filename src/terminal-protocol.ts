@@ -16,6 +16,7 @@ export type LifecycleRequest =
     }
   | { kind: "protect"; sessionId: string; canOpenTab: boolean }
   | { kind: "reconnect"; sessionId: string }
+  | { kind: "unprotect"; sessionId: string }
   | {
       kind: "close";
       scope: CloseScope;

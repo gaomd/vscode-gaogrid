@@ -234,7 +234,7 @@ export class PaneView {
   private tabMenuItems(tabId: string): MenuItem[] {
     const tab = this.node.tabs.find((item) => item.id === tabId)!;
     const items: MenuItem[] = [];
-    if (tab.backend === "tmux")
+    if (tab.backend === "tmux") {
       items.push({
         label:
           tab.connectionState === "disconnected"
@@ -244,7 +244,13 @@ export class PaneView {
         disabled: tab.connectionState !== "disconnected",
         run: () => this.actions.protectTab(this.node.id, tab.id),
       });
-    else if (this.actions.protectionAvailable())
+      items.push({
+        label: "Remove Protection",
+        icon: "shield",
+        separatorBefore: true,
+        run: () => this.actions.unprotectTab(this.node.id, tab.id),
+      });
+    } else if (this.actions.protectionAvailable())
       items.push({
         label: "Protect Session",
         icon: "shield",

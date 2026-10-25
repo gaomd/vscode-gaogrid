@@ -8,6 +8,7 @@ export interface WorkspaceActions {
   createTab(paneId: string): void;
   protectionAvailable(): boolean;
   protectTab(paneId: string, tabId: string): void;
+  unprotectTab(paneId: string, tabId: string): void;
   activateTab(paneId: string, tabId: string): void;
   closeTab(paneId: string, tabId: string): void;
   reorderTab(paneId: string, tabId: string, targetTabId: string): void;

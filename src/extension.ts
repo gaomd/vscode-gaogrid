@@ -267,6 +267,37 @@ export function activate(context: vscode.ExtensionContext) {
                 );
                 await persist();
                 value = manager.metadata(tab.sessionId) || false;
+              } else if (request.kind === "unprotect") {
+                const tab = state.workspaces
+                  .flatMap((workspace) => getTabs(workspace.root))
+                  .find((item) => item.sessionId === request.sessionId);
+                if (!tab || tab.backend !== "tmux")
+                  throw new Error("Protected tab is no longer available.");
+                if (
+                  (await manager.activeTasks([tab.sessionId])).has(
+                    tab.sessionId,
+                  )
+                ) {
+                  await vscode.window.showWarningMessage(
+                    "Cannot remove protection while a task is running. Wait until the terminal returns to the shell prompt.",
+                  );
+                  value = false;
+                } else {
+                  const action = "Remove Protection";
+                  const selected = await vscode.window.showWarningMessage(
+                    "Remove protection from this terminal?",
+                    {
+                      modal: true,
+                      detail:
+                        "This destroys its tmux session and replaces it with a fresh direct shell in the current directory. Captured output is restored as history, but live screen and application state are not preserved.",
+                    },
+                    action,
+                  );
+                  if (selected === action) {
+                    value = (await manager.unprotect(tab.sessionId)) || false;
+                    await persist();
+                  } else value = false;
+                }
               } else if (request.kind === "close") {
                 value = await lifecycle.requestClose(request);
               } else throw new Error("Unknown terminal lifecycle operation.");

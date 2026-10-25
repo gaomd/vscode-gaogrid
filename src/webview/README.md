@@ -116,6 +116,10 @@ clients; only the explicit lifecycle close path destroys their tmux sessions.
 Tab context menus use the shared menu controller and support Shift+F10. Protection
 controls are absent without tmux. Disconnected protected tabs retain identifiers
 and offer reconnection. Owned orphan sessions are logged and left running.
+**Remove Protection** is available from the tab context menu. It is refused
+while a task is active; after confirmation on an idle shell, it destroys the
+protected session and starts a fresh direct shell in the same tab, restoring the
+captured terminal output before the new shell prompt.
 
 ## Output recovery
 
