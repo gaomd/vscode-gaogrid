@@ -1,6 +1,10 @@
 import type { SplitNode } from "../../model";
+import type { WindowPresentation } from "../../terminal-protocol";
 
 export interface WorkspaceActions {
+  windowPresentation(): WindowPresentation;
+  toggleWindow(): void;
+  toggleSidebarSize(): void;
   createWorkspace(): void;
   activateWorkspace(workspaceId: string): void;
   closeWorkspace(workspaceId: string): void;

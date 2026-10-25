@@ -21,11 +21,30 @@
     "workspace"
   ],
   "activationEvents": [
-    "onView:gaogrid.view"
+    "onView:gaogrid.view",
+    "onWebviewPanel:gaogrid.window"
   ],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
+      {
+        "command": "gaogrid.toggleWindow",
+        "title": "GaoGrid: Toggle Detached Window"
+      },
+      {
+        "command": "gaogrid.toggleSidebarSize",
+        "title": "GaoGrid: Maximize / Restore Sidebar"
+      },
+      {
+        "command": "gaogrid.detachWindow",
+        "title": "Move into New Window",
+        "category": "GaoGrid"
+      },
+      {
+        "command": "gaogrid.attachWindow",
+        "title": "Attach to Sidebar",
+        "category": "GaoGrid"
+      },
       {
         "command": "gaogrid.newWorkspace",
         "title": "GaoGrid: New Workspace"
@@ -73,7 +92,38 @@
         "title": "GaoGrid: Reset Terminal Font Size"
       }
     ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "gaogrid.detachWindow",
+          "when": "view == gaogrid.view && gaogridCanToggleWindow && !gaogridDetached",
+          "group": "1_window"
+        },
+        {
+          "command": "gaogrid.attachWindow",
+          "when": "view == gaogrid.view && gaogridCanToggleWindow && gaogridDetached",
+          "group": "1_window"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "gaogrid.attachWindow",
+          "when": "activeWebviewPanelId == gaogrid.window && gaogridCanToggleWindow",
+          "group": "1_window"
+        }
+      ]
+    },
     "keybindings": [
+      {
+        "command": "gaogrid.toggleWindow",
+        "key": "cmd+d",
+        "when": "gaogridFocus && gaogridCanToggleWindow"
+      },
+      {
+        "command": "gaogrid.toggleSidebarSize",
+        "key": "cmd+x",
+        "when": "gaogridFocus && gaogridCanResizeSidebar"
+      },
       {
         "command": "gaogrid.newWorkspace",
         "key": "cmd+n",

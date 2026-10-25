@@ -25,6 +25,7 @@ import type {
   TerminalMetadata,
   NewTerminalOptions,
   BackendCapabilities,
+  WindowPresentation,
 } from "../terminal-protocol";
 
 interface WorkspaceBridge {
@@ -63,6 +64,12 @@ export class WorkspaceController {
   private state: PersistedState = { workspaces: [], activeWorkspaceId: "" };
   private readonly view: Pick<WorkspaceView, "update" | "setFocusedPane">;
   private capabilities: BackendCapabilities = { tmux: { available: false } };
+  private presentation: WindowPresentation = {
+    mode: "sidebar",
+    canDetach: false,
+    canMaximize: false,
+    transitioning: false,
+  };
   private mutations: Promise<void> = Promise.resolve();
 
   // Serialize lifecycle mutations; switching/focusing terminals stays immediate.
@@ -73,7 +80,7 @@ export class WorkspaceController {
   }
 
   constructor(
-    root: HTMLElement,
+    private readonly root: HTMLElement,
     private readonly terminals: TerminalFrontend,
     private readonly bridge: WorkspaceBridge,
     createView = (
@@ -84,6 +91,9 @@ export class WorkspaceController {
       new WorkspaceView(root, actions, terminals),
   ) {
     const actions: WorkspaceActions = {
+      windowPresentation: () => this.presentation,
+      toggleWindow: () => this.bridge.send({ type: "toggleWindow" }),
+      toggleSidebarSize: () => this.bridge.send({ type: "toggleSidebarSize" }),
       createWorkspace: () => this.createWorkspace(),
       activateWorkspace: (workspaceId) => this.activateWorkspace(workspaceId),
       closeWorkspace: (workspaceId) => this.closeWorkspace(workspaceId),
@@ -132,6 +142,37 @@ export class WorkspaceController {
     this.view.update(this.state);
   }
 
+  setPresentation(presentation: WindowPresentation) {
+    const wasTransitioning = this.presentation.transitioning;
+    this.presentation = presentation;
+    this.root.inert = presentation.transitioning;
+    this.view.update(this.state);
+    if (wasTransitioning && !presentation.transitioning) {
+      const pane = this.focusedPane();
+      if (pane?.activeTabId) this.terminals.focus(pane.activeTabId);
+    }
+  }
+
+  async preparePresentation(): Promise<PersistedState> {
+    await this.mutations;
+    return this.state;
+  }
+
+  canToggleSidebarSize() {
+    return (
+      this.presentation.mode === "sidebar" &&
+      this.presentation.canMaximize &&
+      !this.presentation.transitioning
+    );
+  }
+
+  canToggleWindow() {
+    return (
+      !this.presentation.transitioning &&
+      (this.presentation.canDetach || this.presentation.mode === "window")
+    );
+  }
+
   updateTerminal(sessionId: string, metadata: TerminalMetadata) {
     for (const workspace of this.state.workspaces)
       for (const pane of getPanes(workspace.root)) {
@@ -155,6 +196,15 @@ export class WorkspaceController {
   }
 
   performAction(action: string, index?: number, options?: NewTerminalOptions) {
+    if (action === "toggleWindow") {
+      if (this.canToggleWindow()) this.bridge.send({ type: "toggleWindow" });
+      return;
+    }
+    if (action === "toggleSidebarSize") {
+      if (this.canToggleSidebarSize())
+        this.bridge.send({ type: "toggleSidebarSize" });
+      return;
+    }
     if (
       ["increaseFontSize", "decreaseFontSize", "resetFontSize"].includes(action)
     ) {

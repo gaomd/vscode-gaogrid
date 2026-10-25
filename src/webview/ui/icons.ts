@@ -5,6 +5,9 @@ import copy from "@vscode/codicons/src/icons/copy.svg";
 import ellipsis from "@vscode/codicons/src/icons/ellipsis.svg";
 import splitHorizontal from "@vscode/codicons/src/icons/split-horizontal.svg";
 import splitVertical from "@vscode/codicons/src/icons/split-vertical.svg";
+import detach from "@vscode/codicons/src/icons/link-external.svg";
+import attach from "@vscode/codicons/src/icons/sign-in.svg";
+import maximize from "@vscode/codicons/src/icons/screen-full.svg";
 
 const sources = {
   shield,
@@ -14,6 +17,9 @@ const sources = {
   ellipsis,
   "split-horizontal": splitHorizontal,
   "split-vertical": splitVertical,
+  detach,
+  attach,
+  maximize,
 };
 
 export type IconName = keyof typeof sources;

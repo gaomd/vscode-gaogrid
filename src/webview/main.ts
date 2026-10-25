@@ -11,8 +11,10 @@ declare function acquireVsCodeApi(): {
 };
 
 const vscode = acquireVsCodeApi();
+const clientId = crypto.randomUUID();
 const root = document.getElementById("root")!;
-const send = (message: unknown) => vscode.postMessage(message);
+const send = (message: unknown) =>
+  vscode.postMessage({ ...(message as object), clientId });
 const terminals = new TerminalFrontend(send);
 const pending = new Map<
   string,
@@ -49,8 +51,21 @@ window.addEventListener("message", ({ data: message }) => {
       workspaces.sessionEnded(message.sessionId);
       break;
     case "init":
+      workspaces.setPresentation(message.presentation);
       workspaces.restore(message.state);
       workspaces.setCapabilities(message.capabilities);
+      break;
+    case "presentation":
+      workspaces.setPresentation(message.presentation);
+      break;
+    case "preparePresentation":
+      void workspaces.preparePresentation().then((state) =>
+        send({
+          type: "presentationReady",
+          requestId: message.requestId,
+          state,
+        }),
+      );
       break;
     case "action":
       workspaces.performAction(message.action, message.index, message.options);
@@ -96,6 +111,13 @@ document.addEventListener(
   (event) => {
     const shortcut = resolveShortcut(event);
     if (!shortcut) return;
+    if (shortcut.action === "toggleWindow" && !workspaces.canToggleWindow())
+      return;
+    if (
+      shortcut.action === "toggleSidebarSize" &&
+      !workspaces.canToggleSidebarSize()
+    )
+      return;
     event.preventDefault();
     event.stopImmediatePropagation();
     workspaces.performAction(shortcut.action, shortcut.index);

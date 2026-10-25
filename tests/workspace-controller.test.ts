@@ -9,6 +9,7 @@ import type {
   LifecycleResult,
 } from "../src/terminal-protocol";
 import { getPanes, getTabs } from "../src/webview/layout";
+import { resolveShortcut } from "../src/webview/shortcuts";
 
 function pane(id: string, cwd: string): PaneNode {
   return {
@@ -154,6 +155,82 @@ test("the last shell exiting closes its workspace when another workspace remains
   assert.equal(h.state().workspaces[0].name, "^1");
   assert.deepEqual(h.disposed, ["a-1"]);
   assert.deepEqual(h.requests, []);
+});
+
+test("window handoff waits for pending tab creation and retains the same layout and terminals", async () => {
+  const h = harness();
+  h.controller.setPresentation({
+    mode: "sidebar",
+    canDetach: true,
+    canMaximize: true,
+    transitioning: false,
+  });
+  assert.equal(h.actions.windowPresentation().mode, "sidebar");
+  h.actions.createTab("b");
+  const handoff = await h.controller.preparePresentation();
+  const source = getPanes(handoff.workspaces[0].root)[1];
+  assert.equal(source.tabs.length, 3);
+  assert.equal(source.activeTabId, source.tabs[2].id);
+  const before = structuredClone(handoff);
+  h.controller.setPresentation({
+    mode: "window",
+    canDetach: true,
+    canMaximize: true,
+    transitioning: true,
+  });
+  assert.deepEqual(await h.controller.preparePresentation(), before);
+  assert.deepEqual(h.disposed, []);
+  h.actions.toggleWindow();
+  assert.deepEqual(h.sent.at(-1), { type: "toggleWindow" });
+});
+
+test("window shortcuts respect presentation capabilities and leave detached Cmd+X available", () => {
+  const h = harness();
+  const before = structuredClone(h.state());
+  const press = (key: string) => {
+    const shortcut = resolveShortcut({
+      key,
+      metaKey: true,
+      ctrlKey: false,
+      altKey: false,
+      shiftKey: false,
+    });
+    assert.ok(shortcut);
+    h.controller.performAction(shortcut.action);
+  };
+  const available = {
+    mode: "sidebar" as const,
+    canDetach: true,
+    canMaximize: true,
+    transitioning: false,
+  };
+  h.controller.setPresentation(available);
+  press("d");
+  press("x");
+  assert.deepEqual(h.sent.splice(0), [
+    { type: "toggleWindow" },
+    { type: "toggleSidebarSize" },
+  ]);
+
+  h.controller.setPresentation({ ...available, mode: "window" });
+  assert.equal(h.controller.canToggleSidebarSize(), false);
+  press("d");
+  press("x");
+  assert.deepEqual(h.sent.splice(0), [{ type: "toggleWindow" }]);
+
+  h.controller.setPresentation({ ...available, transitioning: true });
+  press("d");
+  press("x");
+  h.controller.setPresentation({
+    ...available,
+    canDetach: false,
+    canMaximize: false,
+  });
+  press("d");
+  press("x");
+  assert.deepEqual(h.sent, []);
+  assert.deepEqual(h.state(), before);
+  assert.deepEqual(h.disposed, []);
 });
 
 test("new tabs and nested splits inherit only the source pane and retain other selections", async () => {

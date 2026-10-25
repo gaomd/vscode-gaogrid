@@ -27,10 +27,13 @@ export function resolveShortcut(
       return;
     }
     const action = (
-      { n: "newWorkspace", t: "newTab", w: "closeTab" } as Record<
-        string,
-        string
-      >
+      {
+        n: "newWorkspace",
+        t: "newTab",
+        w: "closeTab",
+        d: "toggleWindow",
+        x: "toggleSidebarSize",
+      } as Record<string, string>
     )[key];
     if (action) return { action };
     if (/^[1-9]$/.test(key)) return { action: "switchTab", index: Number(key) };

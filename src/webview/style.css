@@ -126,8 +126,42 @@ button {
   align-items: center;
   gap: var(--gg-space);
   padding: var(--gg-space);
+  padding-block-end: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.workspace-rail__scroll {
+  display: flex;
+  min-height: 0;
+  width: 100%;
+  flex-direction: column;
+  gap: var(--gg-space);
   overflow: auto;
   scrollbar-width: none;
+}
+
+.workspace-rail__footer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: none;
+  gap: var(--gg-space);
+  width: 100%;
+  margin-block-start: auto;
+}
+
+.workspace-rail__window,
+.workspace-rail__maximize {
+  width: 100%;
+  height: auto;
+  min-height: var(--gg-control-size);
+  aspect-ratio: 1;
+}
+
+.workspace-rail__window[hidden],
+.workspace-rail__maximize[hidden] {
+  display: none;
 }
 
 .workspace-rail__list {
@@ -218,7 +252,7 @@ button {
 }
 
 .terminal-tabs::-webkit-scrollbar,
-.workspace-rail::-webkit-scrollbar {
+.workspace-rail__scroll::-webkit-scrollbar {
   display: none;
 }
 

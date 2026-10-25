@@ -1,6 +1,7 @@
 import type { Workspace } from "../../model";
 import { MAX_WORKSPACES } from "../constants";
 import { createControl, reconcileChildren } from "./controls";
+import { createIcon } from "./icons";
 import type { WorkspaceActions } from "./types";
 import {
   clearAllDragIndicators,
@@ -20,6 +21,8 @@ export class WorkspaceRail {
   private readonly workspaceInsertionMarker = document.createElement("div");
   private readonly buttons = new Map<string, HTMLButtonElement>();
   private readonly add: HTMLButtonElement;
+  private readonly windowButton: HTMLButtonElement;
+  private readonly maximizeButton: HTMLButtonElement;
 
   constructor(private readonly actions: WorkspaceActions) {
     this.element.className = "workspace-rail";
@@ -194,7 +197,27 @@ export class WorkspaceRail {
       clearInsertionMarker(this.list, this.workspaceInsertionMarker);
       actions.moveTabToNewWorkspace(tabId, targetIndex);
     });
-    this.element.append(this.list, this.add);
+    const scroll = document.createElement("div");
+    scroll.className = "workspace-rail__scroll";
+    scroll.append(this.list, this.add);
+    this.windowButton = createControl({
+      label: "Detach Window",
+      icon: "detach",
+      className: "workspace-rail__window",
+      onClick: () => actions.toggleWindow(),
+    });
+    this.windowButton.hidden = true;
+    this.maximizeButton = createControl({
+      label: "Maximize / Restore Sidebar · ⌘X",
+      icon: "maximize",
+      className: "workspace-rail__maximize",
+      onClick: () => actions.toggleSidebarSize(),
+    });
+    this.maximizeButton.hidden = true;
+    const footer = document.createElement("div");
+    footer.className = "workspace-rail__footer";
+    footer.append(this.windowButton, this.maximizeButton);
+    this.element.append(scroll, footer);
     this.element.addEventListener("dragover", (event) => {
       if (!isTabDrag(event.dataTransfer) || event.target !== this.element)
         return;
@@ -221,6 +244,22 @@ export class WorkspaceRail {
   }
 
   update(workspaces: Workspace[], activeId: string) {
+    const presentation = this.actions.windowPresentation();
+    const detached = presentation.mode === "window";
+    const label = detached ? "Attach to Sidebar · ⌘D" : "Detach Window · ⌘D";
+    const icon = detached ? "attach" : "detach";
+    this.windowButton.hidden = !detached && !presentation.canDetach;
+    this.windowButton.disabled = presentation.transitioning;
+    this.windowButton.title = label;
+    this.windowButton.setAttribute("aria-label", label);
+    this.maximizeButton.hidden = !presentation.canMaximize;
+    this.maximizeButton.disabled = detached || presentation.transitioning;
+    this.maximizeButton.title = detached
+      ? "Maximize / Restore Sidebar · Attach to the sidebar to use this action"
+      : "Maximize / Restore Sidebar · ⌘X";
+    this.maximizeButton.setAttribute("aria-label", this.maximizeButton.title);
+    if (!this.windowButton.querySelector(`[data-icon="${icon}"]`))
+      this.windowButton.replaceChildren(createIcon(icon));
     const ids = new Set(workspaces.map((workspace) => workspace.id));
     for (const [id, button] of this.buttons) {
       if (!ids.has(id)) {

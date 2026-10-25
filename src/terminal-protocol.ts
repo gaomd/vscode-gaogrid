@@ -44,6 +44,13 @@ export interface BackendCapabilities {
   tmux: { available: boolean; version?: string };
 }
 
+export interface WindowPresentation {
+  mode: "sidebar" | "window";
+  canDetach: boolean;
+  canMaximize: boolean;
+  transitioning: boolean;
+}
+
 export interface BackendOptions {
   backend?: TerminalBackendType;
   backendSessionId?: string;

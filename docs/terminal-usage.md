@@ -11,6 +11,8 @@ GaoGrid has focus:
 | `⌘N`        | New workspace                             |
 | `⌘T`        | New tab in the focused pane               |
 | `⌘W`        | Close the focused pane's active tab       |
+| `⌘D`        | Detach window / attach to sidebar         |
+| `⌘X`        | Maximize / restore the secondary sidebar  |
 | `Ctrl+1–9`  | Switch workspace                          |
 | `⌘1–9`      | Switch tab in the focused pane            |
 | `⌘⇧[`       | Previous tab in the focused pane          |
@@ -22,6 +24,21 @@ Tab cycling wraps at the first and last tabs. Inside a terminal, `Shift+Enter`
 sends a distinct key sequence so Codex can insert a newline without submitting
 the prompt. Terminal fonts and colors follow VS Code's terminal settings and
 current theme.
+
+## Dedicated Window
+
+Use the detach button at the bottom of the workspace rail, press `⌘D`, or choose
+**Move into New Window** from GaoGrid's VS Code title-bar menu. GaoGrid moves to
+a floating window with the same workspaces, running terminals, and output.
+
+Use the attach button or `⌘D` to return to the sidebar. **Attach to Sidebar** is
+also available in the native title-bar menus. Closing the floating GaoGrid panel
+returns it to the sidebar and keeps its terminals running.
+
+The maximize button and `⌘X` toggle VS Code's secondary sidebar size. The button
+is disabled while GaoGrid is detached, and `⌘X` keeps its normal behavior there.
+Floating windows require support from the editor; the detach button is hidden
+when unavailable.
 
 ## Working Directory
 

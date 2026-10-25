@@ -71,6 +71,13 @@ The webview has three layers:
 focus. It does not read or persist workspace layout. `layout.ts` contains the
 recursive tree helpers. `terminal-theme.ts` translates VS Code terminal settings.
 
+The sidebar and floating `WebviewPanel` share one extension-host backend. Moving
+between them drains pending layout mutations, saves state, and recreates only
+the frontend. Each frontend has a client ID so messages from a replaced webview
+cannot change the active layout. VS Code's native editor move command opens the
+floating window; closing its panel returns GaoGrid to the sidebar. Title-bar menu
+actions, rail buttons, and shortcuts use the same handoff.
+
 Terminal creation resolves cwd through an asynchronous host request before adding
 the tab. Lifecycle mutations are serialized, while tab/workspace selection stays
 immediate. Tab, pane, and workspace closure share `TerminalLifecycle` in the
