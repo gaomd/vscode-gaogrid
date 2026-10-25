@@ -2,6 +2,25 @@
 
 All notable changes to GaoGrid are documented here.
 
+## [0.3.0] - 2026-10-26
+
+### Features
+
+- Detach GaoGrid into a floating window and attach it back to the sidebar while
+  preserving workspace layouts, running terminals, and terminal output.
+- Add square detach/attach and maximize/restore buttons at the bottom of the
+  workspace rail, with `⌘D` and `⌘X` shortcuts. Sidebar maximization is disabled
+  while detached.
+- Add **Move into New Window** and **Attach to Sidebar** to VS Code's native
+  title-bar menus. Closing the floating panel returns GaoGrid to the sidebar
+  without terminating its terminals.
+- Add README installation instructions for VS Code and compatible editors.
+
+### Fixes
+
+- Close ordinary terminal tabs automatically when their shells exit, including
+  with `Ctrl+D`.
+
 ## [0.2.1] - 2026-10-26
 
 - Add a Marketplace icon using the existing terminal artwork.
