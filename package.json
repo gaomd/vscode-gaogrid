@@ -1,0 +1,254 @@
+{
+  "name": "gaogrid",
+  "displayName": "GaoGrid",
+  "description": "Terminal-first workspace manager for the Secondary Sidebar.",
+  "version": "0.1.0",
+  "publisher": "gaomd",
+  "author": "Mengdi Gao",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onView:gaogrid.view"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "gaogrid.newWorkspace",
+        "title": "GaoGrid: New Workspace"
+      },
+      {
+        "command": "gaogrid.newTab",
+        "title": "GaoGrid: New Terminal Tab",
+        "icon": "$(add)"
+      },
+      {
+        "command": "gaogrid.closeTab",
+        "title": "GaoGrid: Close Terminal Tab",
+        "icon": "$(close)"
+      },
+      {
+        "command": "gaogrid.switchWorkspace",
+        "title": "GaoGrid: Switch Workspace"
+      },
+      {
+        "command": "gaogrid.switchTab",
+        "title": "GaoGrid: Switch Terminal Tab"
+      },
+      {
+        "command": "gaogrid.increaseFontSize",
+        "title": "GaoGrid: Increase Terminal Font Size"
+      },
+      {
+        "command": "gaogrid.decreaseFontSize",
+        "title": "GaoGrid: Decrease Terminal Font Size"
+      },
+      {
+        "command": "gaogrid.resetFontSize",
+        "title": "GaoGrid: Reset Terminal Font Size"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "gaogrid.newWorkspace",
+        "key": "cmd+n",
+        "when": "gaogridFocus"
+      },
+      {
+        "command": "gaogrid.newTab",
+        "key": "cmd+t",
+        "when": "gaogridFocus"
+      },
+      {
+        "command": "gaogrid.closeTab",
+        "key": "cmd+w",
+        "when": "gaogridFocus"
+      },
+      {
+        "command": "gaogrid.switchWorkspace",
+        "key": "ctrl+1",
+        "args": 1,
+        "when": "gaogridFocus"
+      },
+      {
+        "command": "gaogrid.switchWorkspace",
+        "key": "ctrl+2",
+        "args": 2,
+        "when": "gaogridFocus"
+      },
+      {
+        "command": "gaogrid.switchWorkspace",
+        "key": "ctrl+3",
+        "args": 3,
+        "when": "gaogridFocus"
+      },
+      {
+        "command": "gaogrid.switchWorkspace",
+        "key": "ctrl+4",
+        "args": 4,
+        "when": "gaogridFocus"
+      },
+      {
+        "command": "gaogrid.switchWorkspace",
+        "key": "ctrl+5",
+        "args": 5,
+        "when": "gaogridFocus"
+      },
+      {
+        "command": "gaogrid.switchWorkspace",
+        "key": "ctrl+6",
+        "args": 6,
+        "when": "gaogridFocus"
+      },
+      {
+        "command": "gaogrid.switchWorkspace",
+        "key": "ctrl+7",
+        "args": 7,
+        "when": "gaogridFocus"
+      },
+      {
+        "command": "gaogrid.switchWorkspace",
+        "key": "ctrl+8",
+        "args": 8,
+        "when": "gaogridFocus"
+      },
+      {
+        "command": "gaogrid.switchWorkspace",
+        "key": "ctrl+9",
+        "args": 9,
+        "when": "gaogridFocus"
+      },
+      {
+        "command": "gaogrid.switchTab",
+        "key": "cmd+1",
+        "args": 1,
+        "when": "gaogridFocus"
+      },
+      {
+        "command": "gaogrid.switchTab",
+        "key": "cmd+2",
+        "args": 2,
+        "when": "gaogridFocus"
+      },
+      {
+        "command": "gaogrid.switchTab",
+        "key": "cmd+3",
+        "args": 3,
+        "when": "gaogridFocus"
+      },
+      {
+        "command": "gaogrid.switchTab",
+        "key": "cmd+4",
+        "args": 4,
+        "when": "gaogridFocus"
+      },
+      {
+        "command": "gaogrid.switchTab",
+        "key": "cmd+5",
+        "args": 5,
+        "when": "gaogridFocus"
+      },
+      {
+        "command": "gaogrid.switchTab",
+        "key": "cmd+6",
+        "args": 6,
+        "when": "gaogridFocus"
+      },
+      {
+        "command": "gaogrid.switchTab",
+        "key": "cmd+7",
+        "args": 7,
+        "when": "gaogridFocus"
+      },
+      {
+        "command": "gaogrid.switchTab",
+        "key": "cmd+8",
+        "args": 8,
+        "when": "gaogridFocus"
+      },
+      {
+        "command": "gaogrid.switchTab",
+        "key": "cmd+9",
+        "args": 9,
+        "when": "gaogridFocus"
+      },
+      {
+        "command": "gaogrid.increaseFontSize",
+        "key": "cmd+=",
+        "when": "gaogridFocus"
+      },
+      {
+        "command": "gaogrid.increaseFontSize",
+        "key": "cmd+shift+=",
+        "when": "gaogridFocus"
+      },
+      {
+        "command": "gaogrid.decreaseFontSize",
+        "key": "cmd+-",
+        "when": "gaogridFocus"
+      },
+      {
+        "command": "gaogrid.resetFontSize",
+        "key": "cmd+0",
+        "when": "gaogridFocus"
+      }
+    ],
+    "viewsContainers": {
+      "secondarySidebar": [
+        {
+          "id": "gaogrid",
+          "title": "GaoGrid",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "gaogrid": [
+        {
+          "id": "gaogrid.view",
+          "name": "Workspace",
+          "type": "webview"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "GaoGrid",
+      "properties": {
+        "gaogrid.defaultShell": {
+          "type": "string",
+          "default": "",
+          "description": "Shell executable used for new terminal sessions. Empty uses the platform default."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "node esbuild.js",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "watch": "node esbuild.js --watch",
+    "vscode:prepublish": "npm run compile"
+  },
+  "dependencies": {
+    "@vscode/codicons": "^0.0.36",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/addon-image": "^0.8.0",
+    "@xterm/addon-web-links": "^0.11.0",
+    "@xterm/addon-webgl": "^0.18.0",
+    "@xterm/xterm": "^5.5.0",
+    "node-pty": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/vscode": "^1.90.0",
+    "esbuild": "^0.21.5",
+    "prettier": "3.6.2",
+    "typescript": "^5.5.0"
+  }
+}

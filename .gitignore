@@ -1,0 +1,13 @@
+node_modules/
+dist/
+coverage/
+*.vsix
+*.tsbuildinfo
+*.log
+.DS_Store
+.env
+.env.*
+!.env.example
+!.vscode/
+.vscode/*
+!.vscode/launch.json

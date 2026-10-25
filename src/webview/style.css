@@ -1,0 +1,466 @@
+/* Shared geometry and chrome. Terminal colors remain owned by xterm. */
+:root {
+  color-scheme: light;
+  --gg-space: 4px;
+  --gg-surface: #fff;
+  --gg-label-surface: #fafafa;
+  --gg-hover-surface: #f0f0f0;
+  --gg-active-surface: #ededed;
+  --gg-text: #555;
+  --gg-text-muted: #777;
+  --gg-text-active: #222;
+  --gg-focus-border: #dedede;
+  --gg-control-size: 20px;
+  --gg-label-min-width: 28px;
+  --gg-label-font-size: 12px;
+  --gg-label-radius: 4px;
+  --gg-terminal-radius: 8px;
+  --gg-icon-size: 14px;
+  --gg-terminal-scrollbar-width: 6px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: var(--gg-surface);
+}
+
+html,
+body {
+  padding: 0;
+}
+
+body {
+  color: var(--gg-text);
+  font: var(--vscode-font-size, 13px) var(--vscode-font-family, sans-serif);
+}
+
+button {
+  font: inherit;
+}
+
+/* Shared controls: every icon, tab, and workspace label uses this box. */
+.control {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: var(--gg-space);
+  min-width: var(--gg-control-size);
+  height: var(--gg-control-size);
+  margin: 0;
+  padding: 0 var(--gg-space);
+  border: 0;
+  border-radius: var(--gg-label-radius);
+  background: var(--gg-label-surface);
+  color: var(--gg-text);
+  line-height: 1;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
+}
+
+.control--icon {
+  width: var(--gg-control-size);
+  padding: 0;
+}
+
+.control--label {
+  min-inline-size: var(--gg-label-min-width);
+}
+
+/* SVG artwork and its viewport share a center; buttons center that viewport. */
+.control__icon {
+  display: block;
+  flex: none;
+  inline-size: var(--gg-icon-size);
+  block-size: var(--gg-icon-size);
+  fill: currentColor;
+  pointer-events: none;
+}
+
+.control:not(:disabled):hover {
+  background: var(--gg-hover-surface);
+  color: var(--gg-text-active);
+}
+
+.control[aria-selected="true"] {
+  background: var(--gg-active-surface);
+  color: var(--gg-text-active);
+}
+
+.control:focus-visible {
+  outline: 1px solid #c8c8c8;
+  outline-offset: 1px;
+}
+
+.control:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Application shell: one rail, one stage, and a 4px outer right/bottom gutter. */
+.gaogrid {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  padding: 0 var(--gg-space) var(--gg-space) 0;
+}
+
+.workspace-rail {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--gg-space);
+  padding: var(--gg-space);
+  overflow: auto;
+  scrollbar-width: none;
+}
+
+.workspace-rail__list {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--gg-space);
+}
+
+.workspace-label,
+.workspace-rail__add {
+  width: 100%;
+}
+
+.workspace-label,
+.terminal-tab {
+  font-family: var(--terminal-font-family, monospace);
+  font-size: var(--gg-label-font-size);
+  font-variant-numeric: tabular-nums;
+}
+
+.workspace-stage {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  padding-block-start: var(--gg-space);
+  overflow: hidden;
+}
+
+/* A pane is a header above one rounded terminal surface. */
+.terminal-pane {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--gg-surface);
+  container-type: inline-size;
+}
+
+.pane-header {
+  display: flex;
+  align-items: center;
+  gap: var(--gg-space);
+  min-width: 0;
+  padding-block-end: var(--gg-space);
+}
+
+.pane-header__tabs {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: var(--gg-space);
+  min-width: 0;
+}
+
+.terminal-tabs {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: var(--gg-space);
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.terminal-tabs::-webkit-scrollbar,
+.workspace-rail::-webkit-scrollbar {
+  display: none;
+}
+
+.terminal-tab {
+  padding-inline: 2px;
+}
+
+.pane-header__actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--gg-space);
+}
+
+@container (max-width: 150px) {
+  .pane-header__split {
+    display: none;
+  }
+}
+
+.terminal-surface {
+  min-width: 0;
+  min-height: 0;
+  padding: var(--gg-space);
+  overflow: hidden;
+  border-radius: var(--gg-terminal-radius);
+  background: var(
+    --vscode-terminal-background,
+    var(--vscode-editor-background)
+  );
+  box-shadow: inset 0 0 0 1px transparent;
+}
+
+.terminal-pane[data-focused="true"] > .terminal-surface {
+  box-shadow: inset 0 0 0 1px var(--gg-focus-border);
+}
+
+.terminal-mount,
+.xterm {
+  width: 100%;
+  height: 100%;
+}
+
+.terminal-mount[hidden] {
+  display: none;
+}
+
+.terminal-mount {
+  position: relative;
+}
+
+.xterm .xterm-viewport {
+  scrollbar-width: none;
+}
+
+.xterm-viewport::-webkit-scrollbar {
+  display: none;
+}
+
+.terminal-scrollbar {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: 0;
+  z-index: 5;
+  width: var(--gg-terminal-scrollbar-width);
+  overflow-x: hidden;
+  overflow-y: scroll;
+  opacity: 0;
+  outline: none;
+  pointer-events: none;
+  transition: opacity 140ms ease;
+}
+
+.terminal-scrollbar[hidden] {
+  display: none;
+}
+
+.terminal-mount:hover > .terminal-scrollbar,
+.terminal-scrollbar[data-scrolling="true"],
+.terminal-scrollbar[data-dragging="true"],
+.terminal-scrollbar:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.terminal-scrollbar::-webkit-scrollbar {
+  width: var(--gg-terminal-scrollbar-width);
+}
+
+.terminal-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.terminal-scrollbar::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: var(--vscode-scrollbarSlider-background, rgb(0 0 0 / 20%));
+}
+
+.terminal-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--vscode-scrollbarSlider-hoverBackground, rgb(0 0 0 / 30%));
+}
+
+.terminal-scrollbar::-webkit-scrollbar-thumb:active {
+  background: var(--vscode-scrollbarSlider-activeBackground, rgb(0 0 0 / 40%));
+}
+
+/* Top spacing belongs to the stage/split structure, not individual panes.
+   Every sash fills an existing gutter between regions: columns start at the
+   tab label's top edge, rows sit between a terminal and the next tab row. */
+.split-view {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.split-view[data-axis="columns"] {
+  grid-template-columns: minmax(0, var(--split-first)) var(--gg-space) minmax(
+      0,
+      var(--split-second)
+    );
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.split-view[data-axis="rows"] {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, var(--split-first)) var(--gg-space) minmax(
+      0,
+      var(--split-second)
+    );
+}
+
+.split-view__sash {
+  position: relative;
+  z-index: 2;
+  min-width: 0;
+  min-height: 0;
+  outline: none;
+  cursor: default;
+  touch-action: none;
+}
+
+.split-view__sash::before,
+.split-view__sash::after {
+  position: absolute;
+  content: "";
+}
+
+.split-view__sash::after {
+  inset: 0;
+  border-radius: 999px;
+  background: transparent;
+  pointer-events: none;
+  transition: background-color 140ms ease;
+}
+
+.split-view[data-axis="columns"] > .split-view__sash[data-hovered="true"],
+.split-view[data-axis="columns"] > .split-view__sash[data-dragging="true"] {
+  cursor: col-resize;
+}
+
+.split-view[data-axis="columns"] > .split-view__sash::before {
+  inset: 0 -3px;
+}
+
+.split-view[data-axis="rows"] > .split-view__sash[data-hovered="true"],
+.split-view[data-axis="rows"] > .split-view__sash[data-dragging="true"] {
+  cursor: row-resize;
+}
+
+.split-view[data-axis="rows"] > .split-view__sash::before {
+  inset: -3px 0;
+}
+
+.split-view__sash[data-hovered="true"]::after,
+.split-view__sash[data-dragging="true"]::after {
+  background: var(--vscode-sash-hoverBorder, #e6e6e6);
+}
+
+/* The same menu portal serves the ellipsis button and pane context menu. */
+.action-menu {
+  position: fixed;
+  z-index: 1000;
+  display: flex;
+  min-width: 192px;
+  max-width: calc(100vw - var(--gg-space) - var(--gg-space));
+  max-height: calc(100vh - var(--gg-space) - var(--gg-space));
+  flex-direction: column;
+  gap: 1px;
+  padding: var(--gg-space);
+  overflow-x: hidden;
+  overflow-y: auto;
+  border: 1px solid #e6e6e6;
+  border-radius: var(--gg-terminal-radius);
+  background: var(--gg-surface);
+  color: var(--gg-text);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 10%);
+}
+
+.action-menu__item {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 26px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: var(--gg-label-radius);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.action-menu__item:not(:disabled):hover,
+.action-menu__item:focus-visible {
+  outline: none;
+  background: var(--gg-hover-surface);
+}
+
+.action-menu__item:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.action-menu__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.action-menu__shortcut {
+  color: var(--gg-text-muted);
+  font: inherit;
+}
+
+.action-menu__separator {
+  height: 1px;
+  margin: var(--gg-space);
+  background: #f0f0f0;
+}
+
+.empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.empty-state__description {
+  margin: 0;
+  color: var(--gg-text-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+  }
+}
