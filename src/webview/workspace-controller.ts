@@ -17,33 +17,60 @@ import {
 import { TerminalFrontend } from "./terminal-frontend";
 import { WorkspaceView } from "./ui/workspace-view";
 import type { WorkspaceActions } from "./ui/types";
+import type {
+  CloseScope,
+  LifecycleRequest,
+  LifecycleResult,
+  NewTerminalOptions,
+} from "../terminal-protocol";
 
 interface WorkspaceBridge {
   send(message: unknown): void;
   persist(state: PersistedState): void;
+  request(request: LifecycleRequest): Promise<LifecycleResult>;
 }
 
 const id = () => crypto.randomUUID();
-const makeTab = (): TerminalTab => ({
+const makeTab = (cwd: string): TerminalTab => ({
   id: id(),
   title: "terminal",
-  cwd: "",
+  cwd,
   sessionId: id(),
 });
-const makePane = (): PaneNode => {
-  const tab = makeTab();
-  return { type: "pane", id: id(), activeTabId: tab.id, tabs: [tab] };
+const makePane = (cwd: string): PaneNode => {
+  const tab = makeTab(cwd);
+  return {
+    type: "pane",
+    id: id(),
+    activeTabId: tab.id,
+    tabs: [tab],
+    lastKnownCwd: cwd,
+  };
 };
 
 /** Coordinates workspace state and UI intent; the view never persists state. */
 export class WorkspaceController {
   private state: PersistedState = { workspaces: [], activeWorkspaceId: "" };
-  private readonly view: WorkspaceView;
+  private readonly view: Pick<WorkspaceView, "update" | "setFocusedPane">;
+  private mutations: Promise<void> = Promise.resolve();
+
+  // Serialize lifecycle mutations; switching/focusing terminals stays immediate.
+  private enqueue(operation: () => Promise<void>) {
+    this.mutations = this.mutations.then(operation).catch((error) => {
+      this.bridge.send({ type: "lifecycleError", message: String(error) });
+    });
+  }
 
   constructor(
     root: HTMLElement,
     private readonly terminals: TerminalFrontend,
     private readonly bridge: WorkspaceBridge,
+    createView = (
+      root: HTMLElement,
+      actions: WorkspaceActions,
+      terminals: TerminalFrontend,
+    ): Pick<WorkspaceView, "update" | "setFocusedPane"> =>
+      new WorkspaceView(root, actions, terminals),
   ) {
     const actions: WorkspaceActions = {
       createWorkspace: () => this.createWorkspace(),
@@ -52,7 +79,7 @@ export class WorkspaceController {
       focusPane: (paneId) => this.focusPane(paneId),
       createTab: (paneId) => this.createTab(paneId),
       activateTab: (paneId, tabId) => this.activateTab(paneId, tabId),
-      closeTab: (paneId, tabId) => this.closeTab(paneId, tabId),
+      closeTab: (paneId, tabId) => this.closeTabs(paneId, tabId),
       reorderTab: (paneId, tabId, targetId) =>
         this.reorderTab(paneId, tabId, targetId),
       splitPane: (paneId, direction) => this.splitPane(paneId, direction),
@@ -64,7 +91,7 @@ export class WorkspaceController {
           this.bridge.send({ type: "copyCwd", sessionId: tab.sessionId });
       },
     };
-    this.view = new WorkspaceView(root, actions, terminals);
+    this.view = createView(root, actions, terminals);
   }
 
   restore(state: PersistedState) {
@@ -78,7 +105,7 @@ export class WorkspaceController {
     this.commit(false);
   }
 
-  performAction(action: string, index?: number) {
+  performAction(action: string, index?: number, options?: NewTerminalOptions) {
     if (
       ["increaseFontSize", "decreaseFontSize", "resetFontSize"].includes(action)
     ) {
@@ -95,11 +122,14 @@ export class WorkspaceController {
       return;
     }
     if (action === "newWorkspace") this.createWorkspace();
-    else if (action === "newTab") this.createTab();
+    else if (action === "newTab") this.createTab(undefined, options);
     else if (action === "closeTab") {
       const pane = this.focusedPane();
       const tab = pane?.tabs.find((item) => item.id === pane.activeTabId);
-      if (pane && tab) this.closeTab(pane.id, tab.id);
+      if (pane && tab) this.closeTabs(pane.id, tab.id);
+    } else if (action === "closePane") {
+      const pane = this.focusedPane();
+      if (pane) this.closeTabs(pane.id);
     } else if (action === "switchWorkspace") {
       const workspace = this.state.workspaces[(index || 0) - 1];
       if (workspace) this.activateWorkspace(workspace.id);
@@ -161,8 +191,13 @@ export class WorkspaceController {
   }
 
   private createWorkspace() {
+    this.enqueue(() => this.addWorkspace());
+  }
+
+  private async addWorkspace() {
     if (this.state.workspaces.length >= MAX_WORKSPACES) return;
-    const pane = makePane();
+    const cwd = await this.resolveDirectory();
+    const pane = makePane(cwd);
     const workspace: Workspace = {
       id: id(),
       name: `^${this.state.workspaces.length + 1}`,
@@ -185,45 +220,61 @@ export class WorkspaceController {
   }
 
   private closeWorkspace(workspaceId: string) {
-    const index = this.state.workspaces.findIndex(
-      (workspace) => workspace.id === workspaceId,
-    );
-    const workspace = this.state.workspaces[index];
-    if (!workspace) return;
-    getTabs(workspace.root).forEach((tab) => this.disposeTab(tab));
-    this.state.workspaces.splice(index, 1);
-    this.renumberWorkspaces();
-    if (this.state.activeWorkspaceId === workspaceId) {
-      this.state.activeWorkspaceId =
-        this.state.workspaces[Math.min(index, this.state.workspaces.length - 1)]
-          ?.id || "";
-    }
-    if (!this.state.workspaces.length) this.createWorkspace();
-    else this.commit();
+    this.enqueue(async () => {
+      const index = this.state.workspaces.findIndex(
+        (workspace) => workspace.id === workspaceId,
+      );
+      const workspace = this.state.workspaces[index];
+      if (!workspace) return;
+      const tabs = getTabs(workspace.root);
+      if (!(await this.requestClose(tabs, "workspace", workspace.name))) return;
+      tabs.forEach((tab) => this.terminals.disposeTab(tab));
+      this.state.workspaces.splice(index, 1);
+      this.renumberWorkspaces();
+      if (this.state.activeWorkspaceId === workspaceId) {
+        this.state.activeWorkspaceId =
+          this.state.workspaces[
+            Math.min(index, this.state.workspaces.length - 1)
+          ]?.id || "";
+      }
+      if (!this.state.workspaces.length) await this.addWorkspace();
+      else this.commit();
+    });
   }
 
-  private createTab(paneId?: string) {
+  private createTab(paneId?: string, options?: NewTerminalOptions) {
     const workspace = this.workspace();
-    if (!workspace) {
-      this.createWorkspace();
-      return;
-    }
-    let pane = findPane(workspace.root, paneId) || this.focusedPane();
-    if (!pane) {
-      pane = makePane();
-      workspace.root = pane;
+    const sourcePaneId = paneId || this.focusedPane()?.id;
+    this.enqueue(async () => {
+      if (!workspace) {
+        await this.addWorkspace();
+        return;
+      }
+      if (!this.state.workspaces.includes(workspace)) return;
+      let pane =
+        findPane(workspace.root, sourcePaneId) ||
+        (!sourcePaneId ? getPanes(workspace.root)[0] : undefined);
+      if (sourcePaneId && !pane) return;
+      if (pane && pane.tabs.length >= MAX_TABS_PER_PANE) return;
+      const cwd = await this.resolveDirectory(pane, options?.cwd);
+      if (!pane) {
+        pane = makePane(cwd);
+        pane.tabs[0].profile = options?.profile;
+        workspace.root = pane;
+        workspace.focusedPaneId = pane.id;
+        this.commit();
+        this.startTab(pane.tabs[0]);
+        return;
+      }
+      const tab = makeTab(cwd);
+      tab.profile = options?.profile;
+      pane.tabs.push(tab);
+      pane.activeTabId = tab.id;
+      pane.lastKnownCwd = cwd;
       workspace.focusedPaneId = pane.id;
       this.commit();
-      this.startTab(pane.tabs[0]);
-      return;
-    }
-    if (pane.tabs.length >= MAX_TABS_PER_PANE) return;
-    const tab = makeTab();
-    pane.tabs.push(tab);
-    pane.activeTabId = tab.id;
-    workspace.focusedPaneId = pane.id;
-    this.commit();
-    this.startTab(tab);
+      this.startTab(tab);
+    });
   }
 
   private activateTab(paneId: string, tabId: string) {
@@ -232,31 +283,40 @@ export class WorkspaceController {
     if (!workspace || !pane || !pane.tabs.some((tab) => tab.id === tabId))
       return;
     pane.activeTabId = tabId;
+    const tab = pane.tabs.find((item) => item.id === tabId)!;
+    pane.lastKnownCwd = tab.cwd;
     workspace.focusedPaneId = paneId;
     this.commit();
   }
 
-  private closeTab(paneId: string, tabId: string) {
-    const workspace = this.workspace();
-    const pane = findPane(workspace?.root || null, paneId);
-    if (!workspace || !pane) return;
-    const index = pane.tabs.findIndex((tab) => tab.id === tabId);
-    if (index < 0) return;
-    const [tab] = pane.tabs.splice(index, 1);
-    this.disposeTab(tab);
-    if (pane.activeTabId === tabId)
-      pane.activeTabId =
-        pane.tabs[Math.min(index, pane.tabs.length - 1)]?.id || null;
-    if (!pane.tabs.length) {
-      const paneIndex = getPanes(workspace.root).findIndex(
-        (item) => item.id === paneId,
+  private closeTabs(paneId: string, tabId?: string) {
+    this.enqueue(async () => {
+      const workspace = this.state.workspaces.find((item) =>
+        findPane(item.root, paneId),
       );
-      workspace.root = removePane(workspace.root, paneId);
-      const remaining = getPanes(workspace.root);
-      workspace.focusedPaneId =
-        remaining[Math.min(paneIndex, remaining.length - 1)]?.id;
-    }
-    this.commit();
+      const pane = findPane(workspace?.root || null, paneId);
+      if (!workspace || !pane) return;
+      const index = tabId ? pane.tabs.findIndex((tab) => tab.id === tabId) : 0;
+      if (index < 0) return;
+      const tabs = tabId ? [pane.tabs[index]] : [...pane.tabs];
+      if (!(await this.requestClose(tabs, tabId ? "terminal" : "pane"))) return;
+      tabs.forEach((tab) => this.terminals.disposeTab(tab));
+      pane.tabs = pane.tabs.filter((tab) => !tabs.includes(tab));
+      if (!pane.tabs.some((tab) => tab.id === pane.activeTabId))
+        pane.activeTabId =
+          pane.tabs[Math.min(index, pane.tabs.length - 1)]?.id || null;
+      if (!pane.tabs.length) {
+        const paneIndex = getPanes(workspace.root).findIndex(
+          (item) => item.id === paneId,
+        );
+        workspace.root = removePane(workspace.root, paneId);
+        const remaining = getPanes(workspace.root);
+        if (workspace.focusedPaneId === paneId)
+          workspace.focusedPaneId =
+            remaining[Math.min(paneIndex, remaining.length - 1)]?.id;
+      }
+      this.commit();
+    });
   }
 
   private reorderTab(paneId: string, tabId: string, targetId: string) {
@@ -272,21 +332,28 @@ export class WorkspaceController {
 
   private splitPane(paneId: string, direction: SplitNode["direction"]) {
     const workspace = this.workspace();
-    const pane = findPane(workspace?.root || null, paneId);
-    if (!workspace?.root || !pane) return;
-    const fresh = makePane();
-    const split: SplitNode = {
-      type: "split",
-      id: id(),
-      direction,
-      ratio: 0.5,
-      first: pane,
-      second: fresh,
-    };
-    workspace.root = replaceNode(workspace.root, pane.id, split);
-    workspace.focusedPaneId = fresh.id;
-    this.commit();
-    this.startTab(fresh.tabs[0]);
+    this.enqueue(async () => {
+      const pane = findPane(workspace?.root || null, paneId);
+      if (
+        !workspace?.root ||
+        !pane ||
+        !this.state.workspaces.includes(workspace)
+      )
+        return;
+      const fresh = makePane(await this.resolveDirectory(pane));
+      const split: SplitNode = {
+        type: "split",
+        id: id(),
+        direction,
+        ratio: 0.5,
+        first: pane,
+        second: fresh,
+      };
+      workspace.root = replaceNode(workspace.root, pane.id, split);
+      workspace.focusedPaneId = fresh.id;
+      this.commit();
+      this.startTab(fresh.tabs[0]);
+    });
   }
 
   private resizeSplit(splitId: string, ratio: number, complete: boolean) {
@@ -312,8 +379,34 @@ export class WorkspaceController {
     });
   }
 
-  private disposeTab(tab: TerminalTab) {
-    this.bridge.send({ type: "close", sessionId: tab.sessionId });
-    this.terminals.disposeTab(tab);
+  private async resolveDirectory(pane?: PaneNode, explicitCwd?: string) {
+    const active = pane?.tabs.find((tab) => tab.id === pane.activeTabId);
+    return (await this.bridge.request({
+      kind: "resolveCwd",
+      explicitCwd,
+      sessionId: active?.sessionId,
+      lastKnownCwd: pane?.lastKnownCwd || active?.cwd,
+    })) as string;
+  }
+
+  private async requestClose(
+    tabs: TerminalTab[],
+    scope: CloseScope,
+    title?: string,
+  ) {
+    const result = await this.bridge.request({
+      kind: "close",
+      scope,
+      title,
+      terminals: tabs.map((tab) => ({
+        sessionId: tab.sessionId,
+        title: tab.title,
+      })),
+    });
+    if (!result) {
+      const pane = this.focusedPane();
+      if (pane?.activeTabId) this.terminals.focus(pane.activeTabId);
+    }
+    return result === true;
   }
 }

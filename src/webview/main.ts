@@ -3,18 +3,30 @@ import { TerminalFrontend } from "./terminal-frontend";
 import { WorkspaceController } from "./workspace-controller";
 import { resolveShortcut } from "./shortcuts";
 import "./style.css";
+import type { LifecycleRequest, LifecycleResult } from "../terminal-protocol";
 
 declare function acquireVsCodeApi(): {
   postMessage(message: unknown): void;
-  setState(state: PersistedState): void;
+  setState(state: unknown): void;
 };
 
 const vscode = acquireVsCodeApi();
 const root = document.getElementById("root")!;
 const send = (message: unknown) => vscode.postMessage(message);
 const terminals = new TerminalFrontend(send);
+const pending = new Map<
+  string,
+  { resolve(value: LifecycleResult): void; reject(error: Error): void }
+>();
 const workspaces = new WorkspaceController(root, terminals, {
   send,
+  request(request: LifecycleRequest) {
+    return new Promise<LifecycleResult>((resolve, reject) => {
+      const requestId = crypto.randomUUID();
+      pending.set(requestId, { resolve, reject });
+      send({ type: "lifecycle", requestId, request });
+    });
+  },
   persist(state) {
     vscode.setState(state);
     send({ type: "persist", state });
@@ -23,11 +35,18 @@ const workspaces = new WorkspaceController(root, terminals, {
 
 window.addEventListener("message", ({ data: message }) => {
   switch (message.type) {
+    case "lifecycleResult": {
+      const request = pending.get(message.requestId);
+      pending.delete(message.requestId);
+      if (message.error) request?.reject(new Error(message.error));
+      else request?.resolve(message.value);
+      break;
+    }
     case "init":
       workspaces.restore(message.state);
       break;
     case "action":
-      workspaces.performAction(message.action, message.index);
+      workspaces.performAction(message.action, message.index, message.options);
       break;
     case "data":
     case "replay":

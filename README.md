@@ -36,6 +36,27 @@ a newline without submitting the prompt.
 
 Terminal fonts and colors follow VS Code's terminal settings and current theme.
 
+New tabs and split panes start in the active terminal's current directory. If it
+is unavailable, GaoGrid tries the pane's last known directory, the current VS Code
+workspace folder, then your home directory. Deleted or inaccessible directories
+are skipped. The `gaogrid.newTab` command also accepts `{ cwd, profile }` options;
+a valid explicit directory takes precedence.
+
+Idle shells close immediately. Closing a terminal with a running task asks for
+confirmation; cancelling keeps its process, output, layout, and selection intact.
+Closing a workspace checks all its terminals and shows one combined confirmation.
+**GaoGrid: Close Terminal Pane** uses the same check for every tab in a pane.
+
+Directories are resolved on demand using recent OSC 7 reports, if your shell
+already sends them, or the shell process's directory on macOS and Linux. GaoGrid
+uses your normal shell startup configuration without injecting prompt hooks.
+
+On macOS and Linux, closing queries a fresh process snapshot to protect programs
+and background jobs still attached to the terminal, such as `npm run dev &`.
+Fully detached daemons and long-running shell builtins without child processes
+are not detected. Close warnings are unavailable when process inspection is
+denied, including on Windows.
+
 ## Current persistence
 
 GaoGrid restores workspaces, split layouts, pane sizes, tabs, and working
@@ -50,6 +71,7 @@ Use VS Code, Node.js 20 or later, and npm.
 npm ci
 npm run compile
 npm run typecheck
+npm test
 npm run format:check
 ```
 
@@ -61,6 +83,12 @@ Run `npm run watch` to rebuild changes automatically. Use **Developer: Reload
 Webviews** in the development window to load updated webview code while keeping
 the extension host and terminal processes running. Restart the debugging session
 to load changes to extension host code.
+
+The tests exercise cwd fallback and traversal permissions, passive OSC parsing,
+close-time task detection, cancelled and aggregate close operations, layout
+mutations, and real zsh/bash PTYs. The PTY tests require process inspection and
+process directory queries; restricted sandboxes must allow these operations.
+They also check conservative residual cleanup.
 
 ## TODO
 

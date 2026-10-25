@@ -1,20 +1,40 @@
 import * as pty from "node-pty";
-import * as os from "os";
 import * as path from "path";
-import * as vscode from "vscode";
-import { execFileSync } from "child_process";
 import * as fs from "fs";
 import { quoteShellPaths } from "./shell-paths";
+import { CwdResolver, resolveCwd } from "./cwd-resolver";
+import {
+  inspectProcesses,
+  ProcessInfo,
+  terminalChildren,
+  remainingProcesses,
+} from "./process-inspector";
+import { hasActiveTask } from "./task-detector";
+import { OscCwdParser } from "./osc-cwd-parser";
 
 type Session = {
   process: pty.IPty;
-  cwd: string;
+  cwd: CwdResolver;
   output: string;
   shell: string;
+  exited: boolean;
+  closing?: Promise<void>;
 };
+
+interface PtyOptions {
+  defaultShell(): string;
+  defaultDirectories(): (string | undefined)[];
+  environment?: NodeJS.ProcessEnv;
+}
+
 export class PtyManager {
   private readonly sessions = new Map<string, Session>();
-  constructor(private readonly emit: (message: unknown) => void) {
+  private readonly starting = new Map<string, Promise<void>>();
+  private readonly sizes = new Map<string, { cols: number; rows: number }>();
+  constructor(
+    private readonly emit: (message: unknown) => void,
+    private readonly options: PtyOptions,
+  ) {
     this.ensureSpawnHelperExecutable();
   }
   private ensureSpawnHelperExecutable() {
@@ -46,43 +66,61 @@ export class PtyManager {
       });
     }
   }
-  start(sessionId: string, cwd?: string, profile?: string) {
+  async start(
+    sessionId: string,
+    cwd?: string,
+    profile?: string,
+  ): Promise<void> {
     if (this.sessions.has(sessionId)) return;
-    const configured = vscode.workspace
-      .getConfiguration("gaogrid")
-      .get<string>("defaultShell", "");
-    const shell =
-      profile ||
-      configured ||
-      (process.platform === "win32"
-        ? "powershell.exe"
-        : process.env.SHELL || "/bin/bash");
-    const home = os.homedir();
-    const workingDirectory =
-      cwd && path.isAbsolute(cwd)
-        ? cwd
-        : vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || home;
+    const pending = this.starting.get(sessionId);
+    if (pending) return pending;
+    const start = this.spawn(sessionId, cwd, profile);
+    this.starting.set(sessionId, start);
     try {
+      await start;
+    } finally {
+      this.starting.delete(sessionId);
+    }
+  }
+
+  private async spawn(sessionId: string, cwd?: string, profile?: string) {
+    const shell = profile || this.options.defaultShell();
+    try {
+      const workingDirectory = await resolveCwd([
+        cwd,
+        ...this.options.defaultDirectories(),
+      ]);
       const proc = pty.spawn(shell, [], {
         name: "xterm-256color",
-        cols: 80,
-        rows: 24,
+        cols: this.sizes.get(sessionId)?.cols || 80,
+        rows: this.sizes.get(sessionId)?.rows || 24,
         cwd: workingDirectory,
-        env: process.env as { [key: string]: string },
+        // node-pty 1.x otherwise serializes undefined as the string "undefined".
+        env: Object.fromEntries(
+          Object.entries(this.options.environment ?? process.env).filter(
+            (entry): entry is [string, string] => typeof entry[1] === "string",
+          ),
+        ),
       });
-      const session = {
+      const session: Session = {
         process: proc,
-        cwd: workingDirectory,
+        cwd: new CwdResolver(workingDirectory),
         output: "",
         shell,
+        exited: false,
       };
       this.sessions.set(sessionId, session);
+      const cwdParser = new OscCwdParser((uri) => session.cwd.report(uri));
       proc.onData((data) => {
+        cwdParser.write(data);
         session.output = (session.output + data).slice(-512_000);
         this.emit({ type: "data", sessionId, data });
       });
       proc.onExit(({ exitCode }) => {
-        this.sessions.delete(sessionId);
+        session.exited = true;
+        session.output = (
+          session.output + `\r\n[process exited: ${exitCode}]\r\n`
+        ).slice(-512_000);
         this.emit({ type: "exit", sessionId, exitCode });
       });
     } catch (error) {
@@ -90,7 +128,9 @@ export class PtyManager {
     }
   }
   input(sessionId: string, data: string) {
-    this.sessions.get(sessionId)?.process.write(data);
+    const session = this.sessions.get(sessionId);
+    if (session && !session.exited && !session.closing)
+      session.process.write(data);
   }
   quotePaths(sessionId: string, paths: string[]) {
     const session = this.sessions.get(sessionId);
@@ -100,50 +140,124 @@ export class PtyManager {
     return this.sessions.get(sessionId)?.output;
   }
   resize(sessionId: string, cols: number, rows: number) {
+    cols = Math.max(2, Math.floor(cols));
+    rows = Math.max(1, Math.floor(rows));
+    if (!Number.isFinite(cols) || !Number.isFinite(rows)) return;
+    this.sizes.set(sessionId, { cols, rows });
     const session = this.sessions.get(sessionId);
-    if (!session) return;
+    if (!session || session.exited || session.closing) return;
     try {
-      session.process.resize(Math.max(2, cols), Math.max(1, rows));
+      session.process.resize(cols, rows);
     } catch {
       /* process may be exiting */
     }
   }
-  cwd(sessionId: string) {
+  async cwd(sessionId: string) {
+    await this.starting.get(sessionId);
     const session = this.sessions.get(sessionId);
     if (!session) return;
+    return session.cwd.refresh(
+      session.exited ? undefined : session.process.pid,
+    );
+  }
+
+  lastCwd(sessionId: string) {
+    return this.sessions.get(sessionId)?.cwd.cwd;
+  }
+
+  async activeTasks(sessionIds: string[]) {
+    await Promise.all(sessionIds.map((id) => this.starting.get(id)));
+    const processes = await inspectProcesses();
+    const active = new Set<string>();
+    for (const id of sessionIds) {
+      const session = this.sessions.get(id);
+      if (
+        session &&
+        !session.exited &&
+        processes &&
+        hasActiveTask(processes, session.process.pid, session.shell)
+      )
+        active.add(id);
+    }
+    return active;
+  }
+
+  async closeSessions(sessionIds: string[]) {
+    await Promise.all(sessionIds.map((id) => this.starting.get(id)));
+    const processes = await inspectProcesses();
+    await Promise.all(sessionIds.map((id) => this.close(id, processes)));
+  }
+
+  private async close(sessionId: string, processes?: ProcessInfo[]) {
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+    if (session.closing) return session.closing;
+    const closing = this.terminate(session, processes);
+    session.closing = closing;
     try {
-      if (process.platform !== "win32") {
-        const fs = require("fs") as typeof import("fs");
-        const cwd =
-          process.platform === "linux"
-            ? fs.readlinkSync(`/proc/${session.process.pid}/cwd`)
-            : execFileSync(
-                "/usr/sbin/lsof",
-                ["-a", "-p", String(session.process.pid), "-d", "cwd", "-Fn"],
-                { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
-              )
-                .split("\n")
-                .find((line) => line.startsWith("n"))
-                ?.slice(1);
-        if (cwd) session.cwd = cwd;
-      }
-    } catch {
-      /* retain last known cwd */
-    }
-    return session.cwd;
-  }
-  close(sessionId: string) {
-    const s = this.sessions.get(sessionId);
-    if (s) {
+      await closing;
       this.sessions.delete(sessionId);
-      try {
-        s.process.kill();
-      } catch {
-        /* already exited */
-      }
+      this.sizes.delete(sessionId);
+    } catch (error) {
+      session.closing = undefined;
+      throw error;
     }
   }
-  closeAll() {
-    for (const id of this.sessions.keys()) this.close(id);
+
+  private async terminate(session: Session, processes?: ProcessInfo[]) {
+    if (session.exited) return;
+    if (process.platform === "win32") {
+      session.process.kill();
+      return;
+    }
+    const root = processes?.find((entry) => entry.pid === session.process.pid);
+    const known = root ? [root, ...terminalChildren(processes!, root.pid)] : [];
+    // Let the shell's normal hangup handling finish its jobs before intervening.
+    session.process.kill("SIGHUP");
+    const deadline = Date.now() + 250;
+    while (
+      Date.now() < deadline &&
+      (!session.exited || known.some((entry) => alive(entry.pid)))
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    const current = await inspectProcesses();
+    if (!root || !current) {
+      // Without an inspectable snapshot, only the PTY's own child is ours to kill.
+      if (!session.exited) session.process.kill("SIGKILL");
+      return;
+    }
+    if (remainingProcesses([root], current).length)
+      known.push(...terminalChildren(current, root.pid));
+    const remaining = remainingProcesses(known, current);
+    for (const entry of [...remaining].reverse()) signal(entry.pid, "SIGTERM");
+    if (!remaining.length) return;
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const final = await inspectProcesses();
+    if (final)
+      for (const entry of remainingProcesses(remaining, final).reverse())
+        signal(entry.pid, "SIGKILL");
+  }
+
+  async closeAll() {
+    await this.closeSessions([
+      ...new Set([...this.sessions.keys(), ...this.starting.keys()]),
+    ]);
+  }
+}
+
+function signal(pid: number, value: NodeJS.Signals) {
+  try {
+    process.kill(pid, value);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+  }
+}
+function alive(pid: number) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
   }
 }

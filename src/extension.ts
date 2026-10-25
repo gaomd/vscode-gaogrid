@@ -1,38 +1,66 @@
 import * as vscode from "vscode";
 import * as path from "path";
+import * as os from "os";
 import { randomUUID } from "crypto";
 import { PtyManager } from "./pty-manager";
-import { PersistedState, TerminalTab, Workspace } from "./model";
+import { PersistedState } from "./model";
+import { getPanes, getTabs } from "./webview/layout";
+import { resolveCwd, validDirectory } from "./cwd-resolver";
+import { TerminalLifecycle } from "./terminal-lifecycle";
+import type { LifecycleRequest, NewTerminalOptions } from "./terminal-protocol";
 
-const STATE_KEY = "gaogrid.state.v1";
+const STATE_KEY = "gaogrid.state.v2";
+let shutdown: (() => Promise<void>) | undefined;
 export function activate(context: vscode.ExtensionContext) {
   let view: vscode.WebviewView | undefined;
+  let viewReady = false;
   let state = context.workspaceState.get<PersistedState>(STATE_KEY) || {
     workspaces: [],
     activeWorkspaceId: "",
   };
-  const manager = new PtyManager((message) =>
-    view?.webview.postMessage(message),
+  const defaultDirectories = () => [workspaceDirectory(), os.homedir()];
+  const manager = new PtyManager(
+    (message) => {
+      if (viewReady || (message as { type: string }).type === "error")
+        void view?.webview.postMessage(message);
+    },
+    {
+      defaultDirectories,
+      defaultShell: () =>
+        vscode.workspace
+          .getConfiguration("gaogrid")
+          .get<string>("defaultShell", "") ||
+        (process.platform === "win32"
+          ? "powershell.exe"
+          : process.env.SHELL || "/bin/bash"),
+    },
+  );
+  const lifecycle = new TerminalLifecycle(
+    manager,
+    async ({ message, detail, action }) => {
+      const selection = await vscode.window.showWarningMessage(
+        message,
+        { modal: true, detail },
+        action,
+      );
+      return selection === action;
+    },
   );
   const persist = async () => {
-    const cwdUpdates = new Map<string, string>();
-    for (const ws of state.workspaces)
-      walkTabs(ws.root, (tab) => {
-        const cwd = manager.cwd(tab.sessionId);
-        if (cwd) cwdUpdates.set(tab.id, cwd);
-      });
-    state = {
-      ...state,
-      workspaces: state.workspaces.map((ws) => ({
-        ...ws,
-        root: updateCwds(ws.root, cwdUpdates),
-      })),
-    };
+    for (const workspace of state.workspaces)
+      for (const pane of getPanes(workspace.root)) {
+        for (const tab of pane.tabs)
+          tab.cwd = manager.lastCwd(tab.sessionId) || tab.cwd;
+        pane.lastKnownCwd =
+          pane.tabs.find((tab) => tab.id === pane.activeTabId)?.cwd ||
+          pane.lastKnownCwd;
+      }
     await context.workspaceState.update(STATE_KEY, state);
   };
   const provider: vscode.WebviewViewProvider = {
     resolveWebviewView(webviewView) {
       view = webviewView;
+      viewReady = false;
       webviewView.webview.options = {
         enableScripts: true,
         localResourceRoots: [
@@ -44,6 +72,7 @@ export function activate(context: vscode.ExtensionContext) {
       webviewView.onDidDispose(() => {
         if (view === webviewView) {
           view = undefined;
+          viewReady = false;
           void vscode.commands.executeCommand(
             "setContext",
             "gaogridFocus",
@@ -54,17 +83,21 @@ export function activate(context: vscode.ExtensionContext) {
       webviewView.webview.onDidReceiveMessage(async (message) => {
         switch (message.type) {
           case "ready":
-            for (const ws of state.workspaces)
-              walkTabs(ws.root, (tab) =>
-                manager.start(tab.sessionId, tab.cwd, tab.profile),
-              );
+            await Promise.all(
+              state.workspaces
+                .flatMap((workspace) => getTabs(workspace.root))
+                .map((tab) =>
+                  manager.start(tab.sessionId, tab.cwd, tab.profile),
+                ),
+            );
+            await persist();
             webviewView.webview.postMessage({ type: "init", state });
             webviewView.webview.postMessage({
               type: "settings",
               settings: terminalSettings(),
             });
             for (const ws of state.workspaces)
-              walkTabs(ws.root, (tab) => {
+              getTabs(ws.root).forEach((tab) => {
                 const output = manager.output(tab.sessionId);
                 if (output)
                   webviewView.webview.postMessage({
@@ -73,13 +106,52 @@ export function activate(context: vscode.ExtensionContext) {
                     data: output,
                   });
               });
+            viewReady = true;
             break;
           case "persist":
             state = message.state;
             await persist();
             break;
           case "start":
-            manager.start(message.sessionId, message.cwd, message.profile);
+            await manager.start(
+              message.sessionId,
+              message.cwd,
+              message.profile,
+            );
+            break;
+          case "lifecycle": {
+            try {
+              const request = message.request as LifecycleRequest;
+              let value: string | boolean;
+              if (request.kind === "resolveCwd") {
+                value =
+                  (await validDirectory(request.explicitCwd)) ||
+                  (await resolveCwd([
+                    request.sessionId
+                      ? await manager.cwd(request.sessionId)
+                      : undefined,
+                    request.lastKnownCwd,
+                    ...defaultDirectories(),
+                  ]));
+              } else if (request.kind === "close") {
+                value = await lifecycle.requestClose(request);
+              } else throw new Error("Unknown terminal lifecycle operation.");
+              webviewView.webview.postMessage({
+                type: "lifecycleResult",
+                requestId: message.requestId,
+                value,
+              });
+            } catch (error) {
+              webviewView.webview.postMessage({
+                type: "lifecycleResult",
+                requestId: message.requestId,
+                error: String(error),
+              });
+            }
+            break;
+          }
+          case "lifecycleError":
+            void vscode.window.showErrorMessage(`GaoGrid: ${message.message}`);
             break;
           case "input":
             manager.input(message.sessionId, message.data);
@@ -122,9 +194,6 @@ export function activate(context: vscode.ExtensionContext) {
           case "resize":
             manager.resize(message.sessionId, message.cols, message.rows);
             break;
-          case "close":
-            manager.close(message.sessionId);
-            break;
           case "focus":
             vscode.commands.executeCommand(
               "setContext",
@@ -150,7 +219,7 @@ export function activate(context: vscode.ExtensionContext) {
               void vscode.env.clipboard.writeText(message.text);
             break;
           case "copyCwd": {
-            const cwd = manager.cwd(message.sessionId);
+            const cwd = await manager.cwd(message.sessionId);
             if (cwd) void vscode.env.clipboard.writeText(cwd);
             break;
           }
@@ -169,13 +238,18 @@ export function activate(context: vscode.ExtensionContext) {
     ),
   );
   context.subscriptions.push(
-    vscode.commands.registerCommand("gaogrid.newTab", () =>
-      post({ type: "action", action: "newTab" }),
+    vscode.commands.registerCommand(
+      "gaogrid.newTab",
+      (options?: NewTerminalOptions) =>
+        post({ type: "action", action: "newTab", options }),
     ),
   );
   context.subscriptions.push(
     vscode.commands.registerCommand("gaogrid.closeTab", () =>
       post({ type: "action", action: "closeTab" }),
+    ),
+    vscode.commands.registerCommand("gaogrid.closePane", () =>
+      post({ type: "action", action: "closePane" }),
     ),
   );
   context.subscriptions.push(
@@ -214,17 +288,29 @@ export function activate(context: vscode.ExtensionContext) {
         post({ type: "theme", settings: terminalSettings() });
     }),
   );
-  context.subscriptions.push({
-    dispose: () => {
-      void persist();
-      manager.closeAll();
-    },
-  });
+  shutdown = async () => {
+    await Promise.all(
+      state.workspaces
+        .flatMap((workspace) => getTabs(workspace.root))
+        .map((tab) => manager.cwd(tab.sessionId)),
+    );
+    await persist();
+    await manager.closeAll();
+  };
   function post(message: unknown) {
     view?.webview.postMessage(message);
   }
 }
-export function deactivate() {}
+export async function deactivate() {
+  await shutdown?.();
+  shutdown = undefined;
+}
+
+function workspaceDirectory() {
+  const uri = vscode.window.activeTextEditor?.document.uri;
+  const folder = uri && vscode.workspace.getWorkspaceFolder(uri);
+  return (folder || vscode.workspace.workspaceFolders?.[0])?.uri.fsPath;
+}
 
 function droppedPath(resource: unknown): string | undefined {
   if (typeof resource === "string") {
@@ -258,33 +344,6 @@ function droppedPath(resource: unknown): string | undefined {
       }).fsPath;
   }
   return undefined;
-}
-function walkTabs(
-  node: Workspace["root"],
-  cb: (tab: TerminalTab) => void,
-): void {
-  if (!node) return;
-  if (node.type === "pane") node.tabs.forEach(cb);
-  else {
-    walkTabs(node.first, cb);
-    walkTabs(node.second, cb);
-  }
-}
-function updateCwds(
-  node: Workspace["root"],
-  updates: Map<string, string>,
-): Workspace["root"] {
-  if (!node) return null;
-  if (node.type === "pane")
-    return {
-      ...node,
-      tabs: node.tabs.map((t) => ({ ...t, cwd: updates.get(t.id) || t.cwd })),
-    };
-  return {
-    ...node,
-    first: updateCwds(node.first, updates)!,
-    second: updateCwds(node.second, updates)!,
-  };
 }
 function terminalSettings() {
   const c = vscode.workspace.getConfiguration("terminal.integrated");

@@ -10,6 +10,21 @@ The webview has three layers:
 focus. It does not read or persist workspace layout. `layout.ts` contains the
 recursive tree helpers. `terminal-theme.ts` translates VS Code terminal settings.
 
+Terminal creation resolves cwd through an asynchronous host request before adding
+the tab. Lifecycle mutations are serialized, while tab/workspace selection stays
+immediate. Tab, pane, and workspace closure share `TerminalLifecycle` in the
+extension host. The webview removes layout and xterm surfaces only after that
+operation succeeds; cancellation leaves the view unchanged.
+
+`CwdResolver` resolves directories on demand using recent passive OSC 7 reports,
+process inspection, and the last known directory. `OscCwdParser` only reads OSC 7
+without changing output. Each tab stores one `cwd`; the host merges known session
+directories when saving the layout. Directory reports do not push state updates.
+`hasActiveTask` checks a single OS snapshot when closing. `PtyManager` starts the
+shell normally, sends SIGHUP on closure, then reinspects and cleans up confirmed
+surviving PIDs individually. It never signals process groups.
+Layouts use the current storage schema directly, without migration code.
+
 ## UI rules
 
 - Use `createControl` for tab labels, workspace labels, and icon actions.

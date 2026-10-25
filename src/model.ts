@@ -18,6 +18,7 @@ export interface PaneNode {
   id: string;
   activeTabId: string | null;
   tabs: TerminalTab[];
+  lastKnownCwd?: string;
 }
 export interface TerminalTab {
   id: string;
