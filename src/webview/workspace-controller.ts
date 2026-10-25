@@ -21,6 +21,7 @@ import type {
   CloseScope,
   LifecycleRequest,
   LifecycleResult,
+  TerminalMetadata,
   NewTerminalOptions,
 } from "../terminal-protocol";
 
@@ -103,6 +104,16 @@ export class WorkspaceController {
     if (!this.workspace()) state.activeWorkspaceId = state.workspaces[0].id;
     this.renumberWorkspaces();
     this.commit(false);
+  }
+
+  updateTerminal(sessionId: string, metadata: TerminalMetadata) {
+    for (const workspace of this.state.workspaces)
+      for (const pane of getPanes(workspace.root)) {
+        const tab = pane.tabs.find((item) => item.sessionId === sessionId);
+        if (!tab) continue;
+        Object.assign(tab, { cwd: metadata.cwd, profile: metadata.profile });
+        if (pane.activeTabId === tab.id) pane.lastKnownCwd = metadata.cwd;
+      }
   }
 
   performAction(action: string, index?: number, options?: NewTerminalOptions) {

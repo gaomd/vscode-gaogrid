@@ -7,22 +7,44 @@ import { PersistedState } from "./model";
 import { getPanes, getTabs } from "./webview/layout";
 import { resolveCwd, validDirectory } from "./cwd-resolver";
 import { TerminalLifecycle } from "./terminal-lifecycle";
-import type { LifecycleRequest, NewTerminalOptions } from "./terminal-protocol";
+import type {
+  LifecycleRequest,
+  NewTerminalOptions,
+  TerminalMetadata,
+} from "./terminal-protocol";
+import { STATE_KEY, LEGACY_STATE_KEY, restoreState } from "./persistence-store";
 
-const STATE_KEY = "gaogrid.state.v2";
 let shutdown: (() => Promise<void>) | undefined;
 export function activate(context: vscode.ExtensionContext) {
   let view: vscode.WebviewView | undefined;
   let viewReady = false;
-  let state = context.workspaceState.get<PersistedState>(STATE_KEY) || {
-    workspaces: [],
-    activeWorkspaceId: "",
-  };
+  let state = restoreState(
+    context.workspaceState.get(STATE_KEY) ??
+      context.workspaceState.get(LEGACY_STATE_KEY),
+  );
+  let saveTimer: ReturnType<typeof setTimeout> | undefined;
+  let stopping = false;
   const defaultDirectories = () => [workspaceDirectory(), os.homedir()];
   const manager = new PtyManager(
     (message) => {
-      if (viewReady || (message as { type: string }).type === "error")
-        void view?.webview.postMessage(message);
+      const event = message as TerminalMetadata & {
+        type: string;
+        sessionId: string;
+      };
+      if (event.type === "metadata") {
+        for (const workspace of state.workspaces)
+          for (const tab of getTabs(workspace.root))
+            if (tab.sessionId === event.sessionId)
+              Object.assign(tab, { cwd: event.cwd, profile: event.profile });
+        if (!stopping) {
+          if (saveTimer) clearTimeout(saveTimer);
+          saveTimer = setTimeout(() => {
+            saveTimer = undefined;
+            void persist();
+          }, 300);
+        }
+      }
+      if (viewReady) void view?.webview.postMessage(message);
     },
     {
       defaultDirectories,
@@ -49,8 +71,10 @@ export function activate(context: vscode.ExtensionContext) {
   const persist = async () => {
     for (const workspace of state.workspaces)
       for (const pane of getPanes(workspace.root)) {
-        for (const tab of pane.tabs)
-          tab.cwd = manager.lastCwd(tab.sessionId) || tab.cwd;
+        for (const tab of pane.tabs) {
+          const metadata = manager.metadata(tab.sessionId);
+          if (metadata) Object.assign(tab, metadata);
+        }
         pane.lastKnownCwd =
           pane.tabs.find((tab) => tab.id === pane.activeTabId)?.cwd ||
           pane.lastKnownCwd;
@@ -87,10 +111,11 @@ export function activate(context: vscode.ExtensionContext) {
               state.workspaces
                 .flatMap((workspace) => getTabs(workspace.root))
                 .map((tab) =>
-                  manager.start(tab.sessionId, tab.cwd, tab.profile),
+                  manager.start(tab.sessionId, tab.cwd, tab.profile, true),
                 ),
             );
             await persist();
+            if (view !== webviewView) break;
             webviewView.webview.postMessage({ type: "init", state });
             webviewView.webview.postMessage({
               type: "settings",
@@ -289,6 +314,8 @@ export function activate(context: vscode.ExtensionContext) {
     }),
   );
   shutdown = async () => {
+    stopping = true;
+    if (saveTimer) clearTimeout(saveTimer);
     await Promise.all(
       state.workspaces
         .flatMap((workspace) => getTabs(workspace.root))

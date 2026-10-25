@@ -11,6 +11,7 @@ import {
 } from "./process-inspector";
 import { hasActiveTask } from "./task-detector";
 import { OscCwdParser } from "./osc-cwd-parser";
+import type { TerminalMetadata } from "./terminal-protocol";
 
 type Session = {
   process: pty.IPty;
@@ -70,11 +71,12 @@ export class PtyManager {
     sessionId: string,
     cwd?: string,
     profile?: string,
+    recovering = false,
   ): Promise<void> {
     if (this.sessions.has(sessionId)) return;
     const pending = this.starting.get(sessionId);
     if (pending) return pending;
-    const start = this.spawn(sessionId, cwd, profile);
+    const start = this.spawn(sessionId, cwd, profile, recovering);
     this.starting.set(sessionId, start);
     try {
       await start;
@@ -83,7 +85,12 @@ export class PtyManager {
     }
   }
 
-  private async spawn(sessionId: string, cwd?: string, profile?: string) {
+  private async spawn(
+    sessionId: string,
+    cwd?: string,
+    profile?: string,
+    recovering = false,
+  ) {
     const shell = profile || this.options.defaultShell();
     try {
       const workingDirectory = await resolveCwd([
@@ -110,12 +117,21 @@ export class PtyManager {
         exited: false,
       };
       this.sessions.set(sessionId, session);
-      const cwdParser = new OscCwdParser((uri) => session.cwd.report(uri));
+      const cwdParser = new OscCwdParser((uri) => {
+        session.cwd.report(uri);
+        void session.cwd.refresh().then(() => this.emitMetadata(sessionId));
+      });
       proc.onData((data) => {
         cwdParser.write(data);
         session.output = (session.output + data).slice(-512_000);
         this.emit({ type: "data", sessionId, data });
       });
+      if (recovering) {
+        const data = `\r\n[GaoGrid] Previous Direct Session ended. A new shell was started in:\r\n${workingDirectory}\r\n\r\n`;
+        session.output = data;
+        this.emit({ type: "data", sessionId, data });
+      }
+      this.emitMetadata(sessionId);
       proc.onExit(({ exitCode }) => {
         session.exited = true;
         session.output = (
@@ -156,9 +172,21 @@ export class PtyManager {
     await this.starting.get(sessionId);
     const session = this.sessions.get(sessionId);
     if (!session) return;
-    return session.cwd.refresh(
+    const cwd = await session.cwd.refresh(
       session.exited ? undefined : session.process.pid,
     );
+    this.emitMetadata(sessionId);
+    return cwd;
+  }
+
+  metadata(sessionId: string): TerminalMetadata | undefined {
+    const session = this.sessions.get(sessionId);
+    if (session) return { cwd: session.cwd.cwd, profile: session.shell };
+  }
+
+  private emitMetadata(sessionId: string) {
+    const metadata = this.metadata(sessionId);
+    if (metadata) this.emit({ type: "metadata", sessionId, ...metadata });
   }
 
   lastCwd(sessionId: string) {

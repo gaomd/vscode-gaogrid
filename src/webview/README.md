@@ -19,11 +19,11 @@ operation succeeds; cancellation leaves the view unchanged.
 `CwdResolver` resolves directories on demand using recent passive OSC 7 reports,
 process inspection, and the last known directory. `OscCwdParser` only reads OSC 7
 without changing output. Each tab stores one `cwd`; the host merges known session
-directories when saving the layout. Directory reports do not push state updates.
+directories when saving the layout. Directory reports checkpoint host metadata and update the webview without changing layout.
 `hasActiveTask` checks a single OS snapshot when closing. `PtyManager` starts the
 shell normally, sends SIGHUP on closure, then reinspects and cleans up confirmed
 surviving PIDs individually. It never signals process groups.
-Layouts use the current storage schema directly, without migration code.
+Saved layouts are validated on recovery, with a fallback to the original v1 storage key. Only metadata is recovered; application commands are never replayed.
 
 ## UI rules
 

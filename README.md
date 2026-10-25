@@ -61,7 +61,11 @@ denied, including on Windows.
 
 GaoGrid restores workspaces, split layouts, pane sizes, tabs, and working
 directories. Terminal processes stay alive while the extension is running;
-restarting VS Code recreates the shells in their saved directories.
+restarting VS Code recreates the shells in their saved directories. GaoGrid
+checkpoints cwd and shell metadata in VS Code workspace storage, including passive
+OSC 7 reports when the shell provides them. A restored direct tab reports that its
+previous process ended and a fresh shell was started; it never reruns an application.
+Recreating only the webview reuses the existing PTYs and their buffered output.
 
 ## Development
 

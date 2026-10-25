@@ -19,3 +19,8 @@ export type LifecycleRequest =
     };
 
 export type LifecycleResult = string | boolean;
+
+export interface TerminalMetadata {
+  cwd: string;
+  profile: string;
+}
