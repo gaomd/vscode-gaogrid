@@ -1,7 +1,7 @@
 {
   "name": "gaogrid",
   "displayName": "GaoGrid",
-  "description": "Terminal-first workspace manager for the Secondary Sidebar.",
+  "description": "A terminal multiplexer and workspace manager for VS Code and compatible editors, inspired by cmux and herdr.",
   "version": "0.2.0",
   "publisher": "gaomd",
   "author": "Mengdi Gao",

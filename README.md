@@ -1,9 +1,10 @@
 # GaoGrid - VS Code Extension (gaomd.gaogrid)
 
-A terminal-first workspace manager in VS Code's Secondary Sidebar. Each workspace
-owns a recursive split layout, and each pane has its own terminal tabs.
+A terminal multiplexer and workspace manager for VS Code and compatible editors,
+inspired by [cmux](https://cmux.com/) and [herdr](https://herdr.dev/).
 
-Inspired by [cmux](https://cmux.com/) and [herdr](https://herdr.dev/).
+Organize your terminals into workspaces, split panes, and tabs in the Secondary
+Sidebar.
 
 ## Usage
 
