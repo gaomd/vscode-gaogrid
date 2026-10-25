@@ -11,6 +11,8 @@ import {
 } from "./process-inspector";
 import { hasActiveTask } from "./task-detector";
 import { OscCwdParser } from "./osc-cwd-parser";
+import { TerminalHistory, type OutputSnapshot } from "./terminal-history";
+import type { TerminalOutputStore } from "./terminal-output-store";
 import { TmuxBackend } from "./tmux-backend";
 import type { TerminalMetadata, BackendOptions } from "./terminal-protocol";
 
@@ -23,12 +25,17 @@ type Session = {
   inputRevision: number;
   deferredInput?: string[];
   closing?: Promise<void>;
+  history: TerminalHistory;
+  checkpointTimer?: ReturnType<typeof setTimeout>;
+  checkpoint?: Promise<void>;
 };
 interface PtyOptions {
   defaultShell(): string;
   defaultDirectories(): (string | undefined)[];
   environment?: NodeJS.ProcessEnv;
   tmuxConfigPath?: string;
+  outputStore?: TerminalOutputStore;
+  log?(message: string): void;
 }
 
 export class PtyManager {
@@ -41,6 +48,7 @@ export class PtyManager {
   private readonly backends = new Map<string, TerminalMetadata>();
   private readonly recoveryOutput = new Map<string, string>();
   private readonly sizes = new Map<string, { cols: number; rows: number }>();
+  private stopping = false;
   readonly tmux: TmuxBackend;
   constructor(
     private readonly emit: (message: unknown) => void,
@@ -128,6 +136,25 @@ export class PtyManager {
     try {
       let prefix = "";
       let pane;
+      if (
+        recovering &&
+        metadata.backend === "direct" &&
+        this.options.outputStore
+      ) {
+        const saved = await this.options.outputStore
+          .read(sessionId)
+          .catch((error) => {
+            this.options.log?.(
+              `Could not read terminal output: ${String(error)}`,
+            );
+            return undefined;
+          });
+        if (saved) {
+          prefix = saved.data + "\x1b[0m";
+          if (!this.sizes.has(sessionId))
+            this.sizes.set(sessionId, { cols: saved.cols, rows: saved.rows });
+        }
+      }
       if (metadata.backend === "tmux") {
         if (!(await this.tmux.capabilities()).tmux.available)
           throw new Error(
@@ -171,7 +198,7 @@ export class PtyManager {
         // Persist a newly created session even if the attach client subsequently fails.
         this.emitMetadata(sessionId);
       } else if (recovering)
-        prefix = `\r\n[GaoGrid] Previous Direct Session ended. A new shell was started in:\r\n${workingDirectory}\r\n\r\n`;
+        prefix += `\r\n[GaoGrid] Previous Direct Session ended. A new shell was started in:\r\n${workingDirectory}\r\n\r\n`;
       const session = this.spawnClient(
         sessionId,
         workingDirectory,
@@ -190,6 +217,7 @@ export class PtyManager {
       if (metadata.backend === "tmux") this.emit({ type: "reset", sessionId });
       if (session.output)
         this.emit({ type: "data", sessionId, data: session.output });
+      this.scheduleCheckpoint(sessionId, session);
     } catch (error) {
       metadata.connectionState = "disconnected";
       this.emitMetadata(sessionId);
@@ -231,7 +259,9 @@ export class PtyManager {
       shell,
       exited: false,
       inputRevision: 0,
+      history: new TerminalHistory(size.cols, size.rows),
     };
+    session.history.write(output);
     const current = () => this.sessions.get(sessionId) === session;
     const cwdParser = new OscCwdParser((uri) => {
       session.cwd.report(uri);
@@ -243,13 +273,26 @@ export class PtyManager {
     proc.onData((data) => {
       cwdParser.write(data);
       session.output = (session.output + data).slice(-2_000_000);
-      if (current()) this.emit({ type: "data", sessionId, data });
+      const publish = current();
+      session.history.write(data, () => {
+        if (publish && current()) {
+          this.emit({ type: "data", sessionId, data });
+          this.scheduleCheckpoint(sessionId, session);
+        }
+      });
     });
     proc.onExit(({ exitCode }) => {
       session.exited = true;
       const message = tmuxId
         ? "[GaoGrid] Protected session disconnected. Right-click the tab to reconnect."
         : `[process exited: ${exitCode}]`;
+      const publish = current();
+      session.history.write(`\r\n${message}\r\n`, () => {
+        if (publish && current()) {
+          this.emit({ type: "data", sessionId, data: `\r\n${message}\r\n` });
+          this.scheduleCheckpoint(sessionId, session);
+        }
+      });
       session.output = (session.output + `\r\n${message}\r\n`).slice(
         -2_000_000,
       );
@@ -257,7 +300,6 @@ export class PtyManager {
         const metadata = this.backends.get(sessionId);
         if (metadata) metadata.connectionState = "disconnected";
         this.emitMetadata(sessionId);
-        this.emit({ type: "data", sessionId, data: `\r\n${message}\r\n` });
       }
     });
     return session;
@@ -275,6 +317,7 @@ export class PtyManager {
       );
     } catch (error) {
       if (!session.exited) session.process.kill();
+      session.history.dispose();
       throw error;
     }
   }
@@ -328,6 +371,14 @@ export class PtyManager {
       original.deferredInput = [];
       if (!(await this.idle(original)) || original.inputRevision !== revision)
         return;
+      const previousScreen = await original.history.snapshot();
+      candidate.history.dispose();
+      candidate.history = new TerminalHistory(
+        previousScreen.cols,
+        previousScreen.rows,
+      );
+      candidate.history.write(previousScreen.data);
+      candidate.history.write(candidate.output);
       this.sessions.set(sessionId, candidate);
       this.backends.set(sessionId, {
         cwd,
@@ -346,12 +397,17 @@ export class PtyManager {
       this.emitMetadata(sessionId);
       if (data) this.emit({ type: "data", sessionId, data });
       await this.terminate(original, await inspectProcesses());
+      if (original.checkpointTimer) clearTimeout(original.checkpointTimer);
+      await original.checkpoint;
+      original.history.dispose();
+      await this.options.outputStore?.remove(sessionId);
       return this.metadata(sessionId);
     } finally {
       const input = original.deferredInput;
       original.deferredInput = undefined;
       if (!switched) {
         if (candidate && !candidate.exited) candidate.process.kill();
+        candidate?.history.dispose();
         if (id) await this.tmux.destroy(id);
       }
       for (const data of input || []) this.input(sessionId, data);
@@ -374,6 +430,40 @@ export class PtyManager {
       this.recoveryOutput.get(sessionId) || this.sessions.get(sessionId)?.output
     );
   }
+  async replay(
+    sessionId: string,
+    consume?: (snapshot: OutputSnapshot) => void,
+  ): Promise<OutputSnapshot | undefined> {
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+    return session.history.snapshot(consume, true);
+  }
+
+  private scheduleCheckpoint(sessionId: string, session: Session) {
+    if (
+      !this.options.outputStore ||
+      this.stopping ||
+      session.closing ||
+      session.checkpointTimer ||
+      this.backends.get(sessionId)?.backend !== "direct"
+    )
+      return;
+    session.checkpointTimer = setTimeout(() => {
+      session.checkpointTimer = undefined;
+      session.checkpoint = this.saveOutput(sessionId, session);
+    }, 500);
+  }
+
+  private async saveOutput(sessionId: string, session: Session) {
+    try {
+      const snapshot = await session.history.snapshot();
+      if (this.backends.get(sessionId)?.backend === "direct")
+        await this.options.outputStore?.save(sessionId, snapshot);
+    } catch (error) {
+      this.options.log?.(`Could not save terminal output: ${String(error)}`);
+    }
+  }
+
   resize(sessionId: string, cols: number, rows: number) {
     cols = Math.max(2, Math.floor(cols));
     rows = Math.max(1, Math.floor(rows));
@@ -383,6 +473,7 @@ export class PtyManager {
     if (!session || session.exited || session.closing) return;
     try {
       session.process.resize(cols, rows);
+      void session.history.resize(cols, rows);
     } catch {
       /* process may be exiting */
     }
@@ -474,7 +565,13 @@ export class PtyManager {
         await this.tmux.destroy(metadata.backendSessionId);
         await this.cleanup(known);
       }
-      if (session) await this.terminate(session, processes);
+      if (session) {
+        if (session.checkpointTimer) clearTimeout(session.checkpointTimer);
+        await this.terminate(session, processes);
+        await session.checkpoint;
+        session.history.dispose();
+      }
+      await this.options.outputStore?.remove(sessionId);
       this.sessions.delete(sessionId);
       this.backends.delete(sessionId);
       this.recoveryOutput.delete(sessionId);
@@ -552,15 +649,20 @@ export class PtyManager {
 
   /** VS Code shutdown detaches protected clients, without invoking user-close logic. */
   async shutdown() {
+    this.stopping = true;
     await this.settle();
-    const direct = [...this.backends]
-      .filter(([, value]) => value.backend === "direct")
-      .map(([id]) => id);
-    await this.closeSessions(direct);
-    for (const [id, session] of this.sessions) {
-      if (this.backends.get(id)?.backend === "tmux" && !session.exited)
-        session.process.kill();
-    }
+    const processes = await inspectProcesses();
+    await Promise.all(
+      [...this.sessions].map(async ([id, session]) => {
+        if (session.checkpointTimer) clearTimeout(session.checkpointTimer);
+        await session.checkpoint;
+        if (this.backends.get(id)?.backend === "direct") {
+          await this.terminate(session, processes);
+          await this.saveOutput(id, session);
+        } else if (!session.exited) session.process.kill();
+        session.history.dispose();
+      }),
+    );
     this.sessions.clear();
   }
 }

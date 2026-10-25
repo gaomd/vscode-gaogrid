@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import * as path from "path";
 import * as os from "os";
 import { randomUUID } from "crypto";
+import { TerminalOutputStore } from "./terminal-output-store";
 import { PtyManager } from "./pty-manager";
 import { PersistedState } from "./model";
 import { getPanes, getTabs } from "./webview/layout";
@@ -19,6 +20,8 @@ let shutdown: (() => Promise<void>) | undefined;
 export function activate(context: vscode.ExtensionContext) {
   let view: vscode.WebviewView | undefined;
   let viewReady = false;
+  let viewGeneration = 0;
+  const replayed = new Set<string>();
   let state = restoreState(
     context.workspaceState.get(STATE_KEY) ??
       context.workspaceState.get(LEGACY_STATE_KEY),
@@ -51,10 +54,18 @@ export function activate(context: vscode.ExtensionContext) {
         void vscode.window.showInformationMessage(
           `GaoGrid: ${(message as { message: string }).message}`,
         );
-      if (viewReady) void view?.webview.postMessage(message);
+      if (viewReady || (event.type === "data" && replayed.has(event.sessionId)))
+        void view?.webview.postMessage(message);
     },
     {
       defaultDirectories,
+      outputStore: new TerminalOutputStore(
+        path.join(
+          (context.storageUri || context.globalStorageUri).fsPath,
+          "terminal-output",
+        ),
+      ),
+      log: (message) => log.appendLine(message),
       tmuxConfigPath: path.join(context.extensionPath, "media", "tmux.conf"),
       defaultShell: () =>
         vscode.workspace
@@ -93,6 +104,8 @@ export function activate(context: vscode.ExtensionContext) {
     resolveWebviewView(webviewView) {
       view = webviewView;
       viewReady = false;
+      viewGeneration++;
+      replayed.clear();
       webviewView.webview.options = {
         enableScripts: true,
         localResourceRoots: [
@@ -116,6 +129,9 @@ export function activate(context: vscode.ExtensionContext) {
         if (stopping) return;
         switch (message.type) {
           case "ready":
+            const generation = ++viewGeneration;
+            viewReady = false;
+            replayed.clear();
             await Promise.all(
               state.workspaces
                 .flatMap((workspace) => getTabs(workspace.root))
@@ -125,7 +141,7 @@ export function activate(context: vscode.ExtensionContext) {
             );
             await persist();
             const capabilities = await manager.tmux.capabilities();
-            if (view !== webviewView) break;
+            if (view !== webviewView || generation !== viewGeneration) break;
             webviewView.webview.postMessage({
               type: "init",
               state,
@@ -135,16 +151,40 @@ export function activate(context: vscode.ExtensionContext) {
               type: "settings",
               settings: terminalSettings(),
             });
-            for (const ws of state.workspaces)
-              getTabs(ws.root).forEach((tab) => {
-                const output = manager.output(tab.sessionId);
-                if (output)
-                  webviewView.webview.postMessage({
-                    type: "replay",
-                    sessionId: tab.sessionId,
-                    data: output,
-                  });
-              });
+            await Promise.all(
+              state.workspaces
+                .flatMap((workspace) => getTabs(workspace.root))
+                .map(async (tab) => {
+                  const snapshot = await manager.replay(
+                    tab.sessionId,
+                    (snapshot) => {
+                      if (view !== webviewView || generation !== viewGeneration)
+                        return;
+                      webviewView.webview.postMessage({
+                        type: "replay",
+                        sessionId: tab.sessionId,
+                        ...snapshot,
+                      });
+                      replayed.add(tab.sessionId);
+                    },
+                  );
+                  if (
+                    !snapshot &&
+                    view === webviewView &&
+                    generation === viewGeneration
+                  ) {
+                    const output = manager.output(tab.sessionId);
+                    if (output)
+                      webviewView.webview.postMessage({
+                        type: "replay",
+                        sessionId: tab.sessionId,
+                        data: output,
+                      });
+                    replayed.add(tab.sessionId);
+                  }
+                }),
+            );
+            if (view !== webviewView || generation !== viewGeneration) break;
             viewReady = true;
             if (capabilities.tmux.available) {
               const known = state.workspaces

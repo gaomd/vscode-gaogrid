@@ -23,7 +23,7 @@ directories when saving the layout. Directory reports checkpoint host metadata a
 `hasActiveTask` checks a single OS snapshot when closing or promoting. For a protected tab it inspects tmux's pane shell PID, rather than the attach client. `PtyManager` starts the
 shell normally, sends SIGHUP on closure, then reinspects and cleans up confirmed
 surviving PIDs individually. It never signals process groups.
-Saved layouts are validated on recovery, with a fallback to the original v1 storage key. Only metadata is recovered; application commands are never replayed.
+Saved layouts are validated on recovery, with a fallback to the original v1 storage key. Layout recovery is separate from output snapshots; application commands are never rerun.
 
 ## UI rules
 
@@ -116,3 +116,22 @@ clients; only the explicit lifecycle close path destroys their tmux sessions.
 Tab context menus use the shared menu controller and support Shift+F10. Protection
 controls are absent without tmux. Disconnected protected tabs retain identifiers
 and offer reconnection. Owned orphan sessions are logged and left running.
+
+## Output recovery
+
+`TerminalHistory` uses headless xterm plus SerializeAddon to maintain rendered
+cells, colors and up to 10,000 lines of scrollback. It excludes protocol queries
+and application input modes from saved output. Live webview replay separately
+preserves the application's alternate screen and input/mouse modes. An old alternate application
+screen becomes normal text history before starting a fresh direct shell.
+
+`TerminalOutputStore` saves bounded snapshots atomically with same-user file
+permissions under VS Code storage. `PtyManager` checkpoints direct tabs while
+output arrives and flushes on shutdown. Explicit close deletes their snapshots.
+Protected reattachment continues to use tmux as its authoritative recovery source.
+
+Host-to-webview data is published after its headless parse completes. Snapshot
+callbacks form a replay barrier: output before the barrier is included once in
+replay; later output follows as live data. Saved dimensions are applied before
+replay and fitting resumes after the serialized output has been parsed. This
+avoids truncating a raw escape stream or losing output during the handshake.

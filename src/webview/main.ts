@@ -56,8 +56,15 @@ window.addEventListener("message", ({ data: message }) => {
       terminals.reset(message.sessionId);
       break;
     case "data":
-    case "replay":
       terminals.write(message.sessionId, message.data);
+      break;
+    case "replay":
+      terminals.replay(
+        message.sessionId,
+        message.data,
+        message.cols,
+        message.rows,
+      );
       break;
     case "paste":
       if (typeof message.text === "string")

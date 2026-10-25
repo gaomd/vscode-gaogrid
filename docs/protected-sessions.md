@@ -1,10 +1,10 @@
-# Protected session compatibility
+# Protected Session Compatibility
 
 Protection is explicit opt-in. Direct tabs run the shell through node-pty;
 protected tabs run an isolated tmux attach client through node-pty. GaoGrid owns
 all workspaces, split trees, panes, and tabs. No tmux layout is exposed.
 
-## Recovery and history
+## Recovery and History
 
 - Live protected sessions survive VS Code quit and Extension Host termination.
   Metadata is kept in VS Code workspace storage, outside the project repository.
@@ -13,15 +13,25 @@ all workspaces, split trees, panes, and tabs. No tmux layout is exposed.
   is replayed over a surviving session.
 - Protection retains the direct terminal's existing frontend history for that
   live view. Output from before promotion is not imported into tmux and is not
-  recovered after a host restart. V1 does not keep disk scrollback snapshots.
+  recovered after a host restart. Direct tabs now checkpoint rendered output to
+  disk; those snapshots are never replayed over a surviving tmux session.
 - A missing session starts a new protected shell, with a clear notice. Nothing
   reruns or resumes the previous application. OS reboot ends tmux processes.
 - Explicit tab/pane/workspace closure destroys the corresponding owned sessions
   after the existing task confirmation. VS Code shutdown only detaches clients.
-- Idle detection requires a known shell and an inspectable process snapshot.
-  Unknown state cannot be promoted. Foreground jobs and attached background jobs
-  block promotion. Fully detached daemons and long-running shell builtins without
-  child processes remain outside existing process-based task detection.
+- Idle checking requires a known shell and an inspectable process snapshot.
+  Foreground jobs and attached background jobs block promotion. The detector does
+  not verify that the shell is at a prompt: builtin tasks without children, such
+  as `read`, can be misclassified as idle. Protection replaces the original shell,
+  so use a new protected tab when the state is uncertain. Prompt/command state
+  integration is deferred. Fully detached daemons are outside task detection.
+
+Direct-session snapshots preserve rendered text and colors, not raw protocol
+traffic. A previously active alternate application screen is recovered as text in
+normal scrollback, so its old input/mouse modes cannot affect the new shell.
+Snapshots are updated every 500 ms while output arrives and flushed on graceful
+shutdown. An abrupt host termination can lose output since the last checkpoint.
+Explicit close removes the snapshot; ordinary host shutdown retains it.
 
 ## Protocols
 

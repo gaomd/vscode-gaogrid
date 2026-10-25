@@ -10,6 +10,7 @@ async function main() {
     entryPoints: [
       ...names.map((name) => `tests/${name}`),
       "tests/fixtures/protected-host.ts",
+      "tests/fixtures/direct-host.ts",
     ],
     outdir: "dist/tests",
     bundle: true,

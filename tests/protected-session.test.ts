@@ -16,6 +16,7 @@ import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { PtyManager } from "../src/pty-manager";
 import { TerminalLifecycle } from "../src/terminal-lifecycle";
+import { TerminalOutputStore } from "../src/terminal-output-store";
 import { TmuxBackend } from "../src/tmux-backend";
 
 const exec = promisify(execFile);
@@ -57,7 +58,7 @@ async function setup(t: TestContext, shell = "/bin/bash") {
   const errors: string[] = [];
   const managers: PtyManager[] = [];
   const ids = new Set<string>();
-  function manager() {
+  function manager(outputStore?: TerminalOutputStore) {
     const value = new PtyManager(
       (message) => {
         const event = message as {
@@ -73,6 +74,7 @@ async function setup(t: TestContext, shell = "/bin/bash") {
         defaultShell: () => shell,
         defaultDirectories: () => [root],
         tmuxConfigPath: config,
+        outputStore,
         environment: { ...process.env, HOME: root, ZDOTDIR: undefined },
       },
     );
@@ -603,4 +605,32 @@ test("explicit protected close cleans up a process that ignores hangup and termi
   assert.equal((await manager.activeTasks(["stubborn"])).has("stubborn"), true);
   await manager.closeSessions(["stubborn"]);
   await until(() => !running(pid));
+});
+
+test("surviving tmux sessions ignore stale direct-session disk snapshots", async (t) => {
+  const h = await setup(t);
+  if (!h) return;
+  const store = new TerminalOutputStore(join(h.root, "snapshots"));
+  await store.save("tab", {
+    version: 1,
+    cols: 80,
+    rows: 24,
+    data: "STALE_DIRECT_HISTORY",
+  });
+  const first = h.manager(store);
+  await first.start("tab", h.root, undefined, false, { backend: "tmux" });
+  first.input("tab", "printf 'TMUX_%s\n' 'SOURCE_OF_TRUTH'\r");
+  await until(
+    () => first.output("tab")?.includes("TMUX_SOURCE_OF_TRUTH") || false,
+  );
+  const metadata = first.metadata("tab")!;
+  await first.shutdown();
+  const second = h.manager(store);
+  await second.start("tab", h.root, undefined, true, metadata);
+  const replay = await second.replay("tab");
+  assert.ok(replay);
+  assert.match(replay.data, /TMUX_SOURCE_OF_TRUTH/);
+  assert.ok(!replay.data.includes("STALE_DIRECT_HISTORY"));
+  await second.closeSessions(["tab"]);
+  assert.equal(await store.read("tab"), undefined);
 });
