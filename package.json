@@ -5,6 +5,7 @@
   "version": "0.2.0",
   "publisher": "gaomd",
   "author": "Mengdi Gao",
+  "icon": "media/icon.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/gaomd/vscode-gaogrid.git"
@@ -240,7 +241,7 @@
       "gaogrid": [
         {
           "id": "gaogrid.view",
-          "name": "Workspace",
+          "name": "GaoGrid",
           "type": "webview"
         }
       ]
