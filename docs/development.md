@@ -25,6 +25,40 @@ mutations, and real zsh/bash PTYs. The PTY tests require process inspection and
 process directory queries; restricted sandboxes must allow these operations.
 They also check conservative residual cleanup.
 
+## Packaging And Releases
+
+Packaging and publishing require Node.js 22 or later. The commands use a pinned
+version of `@vscode/vsce` through `npx`; npm downloads the tool on first use.
+
+```sh
+npm run package
+```
+
+This runs the existing `vscode:prepublish` build and creates
+`gaogrid-<version>.vsix` in the project root, using the version from `package.json`.
+Relative documentation links in the packaged README point to the `main` branch.
+To choose another output path, use `npm run package -- --out /path/to/gaogrid.vsix`.
+
+Before a release, run the development checks above, update `CHANGELOG.md`, and
+choose a version that has not been published. For example:
+
+```sh
+npm version patch --no-git-tag-version
+npm run package
+```
+
+Install the generated VSIX to review the release, then commit the version and
+changelog changes. When ready, publish the current version:
+
+```sh
+npm run release
+```
+
+The release command rebuilds and publishes to the VS Code Marketplace using
+vsce's configured publisher credentials. It does not increment the version,
+create a Git tag, or push commits. Publishing requires authentication for the
+`gaomd` publisher.
+
 ## Webview Architecture And UI
 
 The webview has three layers:

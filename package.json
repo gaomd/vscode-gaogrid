@@ -264,6 +264,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "watch": "node esbuild.js --watch",
+    "package": "npx --yes @vscode/vsce@4.0.0 package --baseContentUrl https://github.com/gaomd/vscode-gaogrid/blob/main/",
+    "release": "npx --yes @vscode/vsce@4.0.0 publish --baseContentUrl https://github.com/gaomd/vscode-gaogrid/blob/main/",
     "vscode:prepublish": "npm run compile"
   },
   "dependencies": {
