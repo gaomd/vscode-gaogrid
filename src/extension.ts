@@ -5,7 +5,7 @@ import { randomUUID } from "crypto";
 import { TerminalOutputStore } from "./terminal-output-store";
 import { PtyManager } from "./pty-manager";
 import { PersistedState } from "./model";
-import { getPanes, getTabs } from "./webview/layout";
+import { getPanes, getTabs, removeTabFromState } from "./webview/layout";
 import { resolveCwd, validDirectory } from "./cwd-resolver";
 import { TerminalLifecycle } from "./terminal-lifecycle";
 import { nativeDroppedPaths } from "./native-drop";
@@ -57,6 +57,11 @@ export function activate(context: vscode.ExtensionContext) {
             void persist();
           }, 300);
         }
+      }
+      if (event.type === "sessionEnded") {
+        if (removeTabFromState(state, event.sessionId)) void persist();
+        if (viewReady) void view?.webview.postMessage(message);
+        return;
       }
       if (event.type === "notice")
         void vscode.window.showInformationMessage(

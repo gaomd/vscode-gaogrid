@@ -11,6 +11,7 @@ import {
   findPane,
   getPanes,
   getTabs,
+  removeTabFromState,
   removePane,
   replaceNode,
 } from "./layout";
@@ -196,6 +197,15 @@ export class WorkspaceController {
           : (current + direction + pane.tabs.length) % pane.tabs.length;
       this.activateTab(pane.id, pane.tabs[next].id);
     }
+  }
+
+  sessionEnded(sessionId: string) {
+    this.enqueue(async () => {
+      const tab = removeTabFromState(this.state, sessionId);
+      if (!tab) return;
+      this.terminals.disposeTab(tab);
+      this.commit();
+    });
   }
 
   private workspace(): Workspace | undefined {
@@ -423,6 +433,17 @@ export class WorkspaceController {
         if (workspace.focusedPaneId === paneId)
           workspace.focusedPaneId =
             remaining[Math.min(paneIndex, remaining.length - 1)]?.id;
+      }
+      if (!workspace.root && this.state.workspaces.length > 1) {
+        const workspaceIndex = this.state.workspaces.indexOf(workspace);
+        this.state.workspaces.splice(workspaceIndex, 1);
+        this.renumberWorkspaces();
+        if (this.state.activeWorkspaceId === workspace.id) {
+          this.state.activeWorkspaceId =
+            this.state.workspaces[
+              Math.min(workspaceIndex, this.state.workspaces.length - 1)
+            ]?.id || "";
+        }
       }
       this.commit();
     });

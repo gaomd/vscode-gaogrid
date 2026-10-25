@@ -13,7 +13,7 @@ import { hasActiveTask } from "./task-detector";
 import { OscCwdParser } from "./osc-cwd-parser";
 import { TerminalHistory, type OutputSnapshot } from "./terminal-history";
 import type { TerminalOutputStore } from "./terminal-output-store";
-import { TmuxBackend } from "./tmux-backend";
+import { TmuxBackend, type TmuxPane } from "./tmux-backend";
 import type { TerminalMetadata, BackendOptions } from "./terminal-protocol";
 
 type Session = {
@@ -285,26 +285,88 @@ export class PtyManager {
     });
     proc.onExit(({ exitCode }) => {
       session.exited = true;
-      const message = tmuxId
-        ? "[GaoGrid] Protected session disconnected. Right-click the tab to reconnect."
-        : `[process exited: ${exitCode}]`;
-      const publish = current();
-      session.history.write(`\r\n${message}\r\n`, () => {
-        if (publish && current()) {
-          this.emit({ type: "data", sessionId, data: `\r\n${message}\r\n` });
-          this.scheduleCheckpoint(sessionId, session);
-        }
-      });
-      session.output = (session.output + `\r\n${message}\r\n`).slice(
-        -2_000_000,
+      if (session.closing || this.stopping) return;
+      if (tmuxId) {
+        void this.reconcileProtectedExit(sessionId, session, tmuxId);
+        return;
+      }
+      this.writeExitNotice(sessionId, session, `[process exited: ${exitCode}]`);
+      const metadata = this.backends.get(sessionId);
+      if (metadata) metadata.connectionState = "disconnected";
+      this.emitMetadata(sessionId);
+    });
+    return session;
+  }
+
+  private async reconcileProtectedExit(
+    sessionId: string,
+    session: Session,
+    backendSessionId: string,
+  ) {
+    const current = () => this.sessions.get(sessionId) === session;
+    let pane: TmuxPane | undefined;
+    try {
+      pane = await this.tmux.inspect(backendSessionId);
+    } catch (error) {
+      this.options.log?.(
+        `Could not inspect protected session after exit: ${String(error)}`,
       );
-      if (current()) {
+      if (current() && !session.closing && !this.stopping) {
+        this.writeExitNotice(
+          sessionId,
+          session,
+          "[GaoGrid] Protected session disconnected. Right-click the tab to reconnect.",
+        );
         const metadata = this.backends.get(sessionId);
         if (metadata) metadata.connectionState = "disconnected";
         this.emitMetadata(sessionId);
       }
+      return;
+    }
+    if (!current() || session.closing || this.stopping) return;
+    if (pane) {
+      this.writeExitNotice(
+        sessionId,
+        session,
+        "[GaoGrid] Protected session disconnected. Right-click the tab to reconnect.",
+      );
+      const metadata = this.backends.get(sessionId);
+      if (metadata) metadata.connectionState = "disconnected";
+      this.emitMetadata(sessionId);
+      return;
+    }
+
+    if (session.checkpointTimer) clearTimeout(session.checkpointTimer);
+    await session.checkpoint;
+    if (!current() || session.closing || this.stopping) return;
+    session.history.dispose();
+    this.sessions.delete(sessionId);
+    this.backends.delete(sessionId);
+    this.recoveryOutput.delete(sessionId);
+    this.initialOutput.delete(sessionId);
+    this.sizes.delete(sessionId);
+    try {
+      await this.options.outputStore?.remove(sessionId);
+    } catch (error) {
+      this.options.log?.(
+        `Could not remove ended session output: ${String(error)}`,
+      );
+    }
+    if (!this.stopping) this.emit({ type: "sessionEnded", sessionId });
+  }
+
+  private writeExitNotice(sessionId: string, session: Session, message: string) {
+    const current = () => this.sessions.get(sessionId) === session;
+    const publish = current();
+    session.history.write(`\r\n${message}\r\n`, () => {
+      if (publish && current()) {
+        this.emit({ type: "data", sessionId, data: `\r\n${message}\r\n` });
+        this.scheduleCheckpoint(sessionId, session);
+      }
     });
-    return session;
+    session.output = (session.output + `\r\n${message}\r\n`).slice(
+      -2_000_000,
+    );
   }
 
   private async waitForAttach(id: string, session: Session) {

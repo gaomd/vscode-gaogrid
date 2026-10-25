@@ -1,4 +1,9 @@
-import type { LayoutNode, PaneNode, TerminalTab } from "../model";
+import type {
+  LayoutNode,
+  PaneNode,
+  PersistedState,
+  TerminalTab,
+} from "../model";
 
 export function getPanes(node: LayoutNode | null): PaneNode[] {
   if (!node) return [];
@@ -53,6 +58,48 @@ export function removePane(
   if (!first) return second;
   if (!second) return first;
   return { ...node, first, second };
+}
+
+export function removeTabFromState(
+  state: PersistedState,
+  sessionId: string,
+): TerminalTab | undefined {
+  for (const workspace of state.workspaces) {
+    const panes = getPanes(workspace.root);
+    const pane = panes.find((item) =>
+      item.tabs.some((tab) => tab.sessionId === sessionId),
+    );
+    if (!pane) continue;
+    const tabIndex = pane.tabs.findIndex((tab) => tab.sessionId === sessionId);
+    const [tab] = pane.tabs.splice(tabIndex, 1);
+    if (pane.activeTabId === tab.id) {
+      pane.activeTabId =
+        pane.tabs[Math.min(tabIndex, pane.tabs.length - 1)]?.id || null;
+      pane.lastKnownCwd =
+        pane.tabs.find((item) => item.id === pane.activeTabId)?.cwd ||
+        pane.lastKnownCwd;
+    }
+    if (!pane.tabs.length) {
+      workspace.root = removePane(workspace.root, pane.id);
+      const remaining = getPanes(workspace.root);
+      if (workspace.focusedPaneId === pane.id)
+        workspace.focusedPaneId =
+          remaining[Math.min(panes.indexOf(pane), remaining.length - 1)]?.id;
+    }
+    if (!workspace.root && state.workspaces.length > 1) {
+      const index = state.workspaces.indexOf(workspace);
+      state.workspaces.splice(index, 1);
+      state.workspaces.forEach((item, position) => {
+        item.name = `^${position + 1}`;
+      });
+      if (state.activeWorkspaceId === workspace.id)
+        state.activeWorkspaceId =
+          state.workspaces[Math.min(index, state.workspaces.length - 1)]?.id ||
+          "";
+    }
+    return tab;
+  }
+  return undefined;
 }
 
 export function getNodeIds(node: LayoutNode | null): string[] {

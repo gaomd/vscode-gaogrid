@@ -45,6 +45,9 @@ window.addEventListener("message", ({ data: message }) => {
     case "metadata":
       workspaces.updateTerminal(message.sessionId, message);
       break;
+    case "sessionEnded":
+      workspaces.sessionEnded(message.sessionId);
+      break;
     case "init":
       workspaces.restore(message.state);
       workspaces.setCapabilities(message.capabilities);
