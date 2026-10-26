@@ -2,6 +2,16 @@ import type { DropSide } from "./types";
 
 export const TAB_DRAG_TYPE = "application/x-gaogrid-tab";
 export const WORKSPACE_DRAG_TYPE = "application/x-gaogrid-workspace";
+let draggedTabId: string | undefined;
+
+export function writeDraggedTab(
+  dataTransfer: DataTransfer | null,
+  tabId: string,
+) {
+  if (!dataTransfer) return;
+  draggedTabId = tabId;
+  dataTransfer.setData(TAB_DRAG_TYPE, tabId);
+}
 
 export type InsertAxis = "horizontal" | "vertical";
 
@@ -11,7 +21,9 @@ export function isTabDrag(dataTransfer: DataTransfer | null) {
 
 export function readDraggedTab(dataTransfer: DataTransfer | null) {
   if (!isTabDrag(dataTransfer)) return undefined;
-  return dataTransfer!.getData(TAB_DRAG_TYPE) || undefined;
+  // Browsers hide the payload during dragover. Keep this webview's source ID
+  // available so previews can validate a move before allowing the drop.
+  return dataTransfer!.getData(TAB_DRAG_TYPE) || draggedTabId;
 }
 
 export function isWorkspaceDrag(dataTransfer: DataTransfer | null) {
@@ -96,6 +108,7 @@ export function clearAllInsertionMarkers() {
 }
 
 export function clearAllDragIndicators() {
+  draggedTabId = undefined;
   clearAllInsertionMarkers();
   document
     .querySelectorAll<HTMLElement>(

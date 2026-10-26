@@ -7,6 +7,7 @@ import type {
 } from "../model";
 import { MAX_TABS_PER_PANE, MAX_WORKSPACES } from "./constants";
 import {
+  canSplitPane,
   findNode,
   findPane,
   getPanes,
@@ -114,7 +115,13 @@ export class WorkspaceController {
         this.moveTabToNewWorkspace(tabId, targetIndex),
       reorderWorkspace: (workspaceId, targetIndex) =>
         this.reorderWorkspace(workspaceId, targetIndex),
-      splitPane: (paneId, direction) => this.splitPane(paneId, direction),
+      canSplitPane: (paneId) =>
+        this.state.workspaces.some((workspace) =>
+          canSplitPane(workspace.root, paneId),
+        ),
+      canSplitTabIntoPane: (tabId, paneId) =>
+        this.canSplitTabIntoPane(tabId, paneId),
+      splitPane: (paneId, side) => this.splitPane(paneId, side),
       resizeSplit: (splitId, ratio, complete) =>
         this.resizeSplit(splitId, ratio, complete),
       copyDirectory: (paneId) => {
@@ -226,7 +233,23 @@ export class WorkspaceController {
       this.terminals.focus(tab.id);
       return;
     }
-    if (action === "newWorkspace") this.createWorkspace();
+    if (
+      action === "splitUp" ||
+      action === "splitDown" ||
+      action === "splitLeft" ||
+      action === "splitRight"
+    ) {
+      const pane = this.focusedPane();
+      const side =
+        action === "splitUp"
+          ? "top"
+          : action === "splitDown"
+            ? "bottom"
+            : action === "splitLeft"
+              ? "left"
+              : "right";
+      if (pane) this.splitPane(pane.id, side);
+    } else if (action === "newWorkspace") this.createWorkspace();
     else if (action === "newTab") this.createTab(undefined, options);
     else if (action === "closeTab") {
       const pane = this.focusedPane();
@@ -586,6 +609,22 @@ export class WorkspaceController {
     this.commit(false);
   }
 
+  private canSplitTabIntoPane(tabId: string, targetPaneId: string): boolean {
+    const source = this.locateTab(tabId);
+    const targetWorkspace = this.state.workspaces.find((workspace) =>
+      findPane(workspace.root, targetPaneId),
+    );
+    if (!source || !targetWorkspace) return false;
+    // Moving a sole tab removes its old pane and can shorten the target path.
+    const root =
+      source.workspace === targetWorkspace &&
+      source.pane.id !== targetPaneId &&
+      source.pane.tabs.length === 1
+        ? removePane(targetWorkspace.root, source.pane.id)
+        : targetWorkspace.root;
+    return canSplitPane(root, targetPaneId);
+  }
+
   private splitTabIntoPane(
     tabId: string,
     targetPaneId: string,
@@ -598,6 +637,7 @@ export class WorkspaceController {
       );
       const targetPane = findPane(targetWorkspace?.root || null, targetPaneId);
       if (!source || !targetWorkspace || !targetPane) return;
+      if (!this.canSplitTabIntoPane(tabId, targetPaneId)) return;
 
       const samePane = source.pane === targetPane;
       const needsReplacement = samePane && source.pane.tabs.length === 1;
@@ -655,6 +695,7 @@ export class WorkspaceController {
         findPane(targetWorkspace.root, targetWorkspace.focusedPaneId) ||
         getPanes(targetWorkspace.root)[0];
       if (targetPane && targetPane.tabs.length >= MAX_TABS_PER_PANE) {
+        if (!canSplitPane(targetWorkspace.root, targetPane.id)) return;
         const fresh: PaneNode = {
           type: "pane",
           id: id(),
@@ -791,24 +832,27 @@ export class WorkspaceController {
       this.state.activeWorkspaceId = this.state.workspaces[0]?.id || "";
   }
 
-  private splitPane(paneId: string, direction: SplitNode["direction"]) {
+  private splitPane(paneId: string, side: DropSide) {
     const workspace = this.workspace();
     this.enqueue(async () => {
       const pane = findPane(workspace?.root || null, paneId);
       if (
         !workspace?.root ||
         !pane ||
-        !this.state.workspaces.includes(workspace)
+        !this.state.workspaces.includes(workspace) ||
+        !canSplitPane(workspace.root, paneId)
       )
         return;
       const fresh = makePane(await this.resolveDirectory(pane));
+      const before = side === "left" || side === "top";
       const split: SplitNode = {
         type: "split",
         id: id(),
-        direction,
+        direction:
+          side === "left" || side === "right" ? "horizontal" : "vertical",
         ratio: 0.5,
-        first: pane,
-        second: fresh,
+        first: before ? fresh : pane,
+        second: before ? pane : fresh,
       };
       workspace.root = replaceNode(workspace.root, pane.id, split);
       workspace.focusedPaneId = fresh.id;

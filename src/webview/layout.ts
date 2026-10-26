@@ -4,6 +4,26 @@ import type {
   PersistedState,
   TerminalTab,
 } from "../model";
+import { MAX_SPLIT_DEPTH } from "./constants";
+
+/** The initial pane has depth zero; each enclosing split adds one level. */
+export function getPaneDepth(
+  node: LayoutNode | null,
+  paneId: string,
+  depth = 0,
+): number | undefined {
+  if (!node) return undefined;
+  if (node.type === "pane") return node.id === paneId ? depth : undefined;
+  return (
+    getPaneDepth(node.first, paneId, depth + 1) ??
+    getPaneDepth(node.second, paneId, depth + 1)
+  );
+}
+
+export function canSplitPane(node: LayoutNode | null, paneId: string): boolean {
+  const depth = getPaneDepth(node, paneId);
+  return depth !== undefined && depth < MAX_SPLIT_DEPTH;
+}
 
 export function getPanes(node: LayoutNode | null): PaneNode[] {
   if (!node) return [];

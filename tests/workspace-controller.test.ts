@@ -1,14 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { WorkspaceController } from "../src/webview/workspace-controller";
-import type { PersistedState, PaneNode } from "../src/model";
+import type { LayoutNode, PersistedState, PaneNode } from "../src/model";
 import type { WorkspaceActions } from "../src/webview/ui/types";
 import type { TerminalFrontend } from "../src/webview/terminal-frontend";
 import type {
   LifecycleRequest,
   LifecycleResult,
 } from "../src/terminal-protocol";
-import { getPanes, getTabs } from "../src/webview/layout";
+import { getPaneDepth, getPanes, getTabs } from "../src/webview/layout";
 import { resolveShortcut } from "../src/webview/shortcuts";
 
 function pane(id: string, cwd: string): PaneNode {
@@ -49,6 +49,30 @@ function fixture() {
       { id: "two", name: "^2", focusedPaneId: "c", root: pane("c", "/other") },
     ],
   } as PersistedState;
+}
+
+function nestedLayout(depth: number, target: PaneNode): LayoutNode {
+  let root: LayoutNode = target;
+  for (let level = 0; level < depth; level++)
+    root = {
+      type: "split",
+      id: `${target.id}-split-${level}`,
+      direction: level % 2 ? "vertical" : "horizontal",
+      ratio: 0.5,
+      first: root,
+      second: pane(`${target.id}-sibling-${level}`, "/sibling"),
+    };
+  return root;
+}
+
+function layoutFixture(
+  root: LayoutNode,
+  focusedPaneId: string,
+): PersistedState {
+  return {
+    activeWorkspaceId: "one",
+    workspaces: [{ id: "one", name: "^1", root, focusedPaneId }],
+  };
 }
 
 function harness(initial = fixture()) {
@@ -272,7 +296,7 @@ test("new tabs and nested splits inherit only the source pane and retain other s
   assert.equal(panes[1].tabs.at(-1)?.cwd, "/backend");
   assert.equal(panes[1].tabs.length, 3);
   assert.equal(h.focused.at(-1), panes[1].activeTabId);
-  h.actions.splitPane("b", "vertical");
+  h.actions.splitPane("b", "bottom");
   await settled();
   const split = h.state().workspaces[0].root!;
   assert.equal(split.type, "split");
@@ -283,6 +307,248 @@ test("new tabs and nested splits inherit only the source pane and retain other s
   assert.equal(all.length, 3);
   assert.equal(all[2].tabs[0].cwd, "/backend");
   assert.equal(all[0].activeTabId, "a-1");
+});
+
+for (const [direction, arrow, letter, glyph] of [
+  ["Up", "ArrowUp", "KeyT", "ˇ"],
+  ["Down", "ArrowDown", "KeyD", "Î"],
+  ["Left", "ArrowLeft", "KeyL", "Ò"],
+  ["Right", "ArrowRight", "KeyR", "‰"],
+] as const) {
+  for (const [key, code] of [
+    [arrow, arrow],
+    [glyph, letter],
+  ]) {
+    test(`${code} splits ${direction.toLowerCase()} relative to the focused pane and preserves existing terminals`, async () => {
+      const h = harness();
+      h.actions.activateTab("b", "b-2");
+      const before = structuredClone(h.state());
+      const originalRoot = before.workspaces[0].root!;
+      assert.equal(originalRoot.type, "split");
+      if (originalRoot.type !== "split") return;
+      const shortcut = resolveShortcut({
+        key,
+        code,
+        metaKey: false,
+        ctrlKey: false,
+        altKey: true,
+        shiftKey: true,
+      });
+      assert.equal(shortcut?.action, `split${direction}`);
+      h.controller.performAction(shortcut!.action);
+      await settled();
+
+      const workspace = h.state().workspaces[0];
+      const root = workspace.root!;
+      assert.equal(root.type, "split");
+      if (root.type !== "split") return;
+      assert.equal(root.ratio, 0.4);
+      assert.deepEqual(root.first, originalRoot.first);
+      const split = root.second;
+      assert.equal(split.type, "split");
+      if (split.type !== "split") return;
+      assert.equal(
+        split.direction,
+        direction === "Left" || direction === "Right"
+          ? "horizontal"
+          : "vertical",
+      );
+      assert.equal(split.ratio, 0.5);
+      const newFirst = direction === "Up" || direction === "Left";
+      const fresh = newFirst ? split.first : split.second;
+      const source = newFirst ? split.second : split.first;
+      assert.equal(fresh.type, "pane");
+      assert.equal(source.type, "pane");
+      if (fresh.type !== "pane" || source.type !== "pane") return;
+      assert.deepEqual(source, originalRoot.second);
+      assert.equal(fresh.tabs.length, 1);
+      assert.equal(fresh.tabs[0].cwd, "/backend");
+      assert.equal(workspace.focusedPaneId, fresh.id);
+      assert.equal(h.focused.at(-1), fresh.activeTabId);
+      assert.deepEqual(h.state().workspaces[1], before.workspaces[1]);
+      assert.deepEqual(h.disposed, []);
+      assert.equal(
+        h.sent.filter((message) => message.type === "start").length,
+        1,
+      );
+    });
+  }
+}
+
+test("split shortcuts leave unshifted Option/Alt navigation, extra modifiers, and IME composition alone", () => {
+  const base = {
+    key: "ArrowLeft",
+    code: "ArrowLeft",
+    altKey: true,
+    shiftKey: true,
+    metaKey: false,
+    ctrlKey: false,
+  };
+  for (const [key, code] of [
+    ["ArrowLeft", "ArrowLeft"],
+    ["d", "KeyD"],
+    ["t", "KeyT"],
+  ]) {
+    assert.equal(
+      resolveShortcut({ ...base, key, code, shiftKey: false }),
+      undefined,
+    );
+  }
+  assert.equal(resolveShortcut({ ...base, metaKey: true }), undefined);
+  assert.equal(resolveShortcut({ ...base, ctrlKey: true }), undefined);
+  assert.equal(resolveShortcut({ ...base, isComposing: true }), undefined);
+});
+
+test("splitting reaches depth four, blocks every further split entry point, and leaves shallower panes available", async () => {
+  const target = pane("limit-root", "/limit");
+  const h = harness(layoutFixture(target, target.id));
+  for (const [index, action] of [
+    "splitUp",
+    "splitLeft",
+    "splitDown",
+    "splitRight",
+  ].entries()) {
+    const workspace = h.state().workspaces[0];
+    assert.equal(h.actions.canSplitPane(workspace.focusedPaneId!), true);
+    h.controller.performAction(action);
+    await settled();
+    const updated = h.state().workspaces[0];
+    assert.equal(getPaneDepth(updated.root, updated.focusedPaneId!), index + 1);
+  }
+  const workspace = h.state().workspaces[0];
+  const cappedId = workspace.focusedPaneId!;
+  const cappedPane = getPanes(workspace.root).find(
+    (item) => item.id === cappedId,
+  )!;
+  const before = structuredClone(h.state());
+  const requests = h.requests.length;
+  const starts = h.sent.filter((item) => item.type === "start").length;
+  assert.equal(h.actions.canSplitPane(cappedId), false);
+  assert.equal(
+    h.actions.canSplitTabIntoPane(cappedPane.tabs[0].id, cappedId),
+    false,
+  );
+  for (const action of ["splitUp", "splitDown", "splitLeft", "splitRight"])
+    h.controller.performAction(action);
+  h.actions.splitPane(cappedId, "right");
+  h.actions.splitTabIntoPane(cappedPane.tabs[0].id, cappedId, "top");
+  await settled();
+  assert.deepEqual(h.state(), before);
+  assert.equal(h.requests.length, requests);
+  assert.equal(h.sent.filter((item) => item.type === "start").length, starts);
+  assert.deepEqual(h.disposed, []);
+
+  assert.equal(h.actions.canSplitPane(target.id), true);
+  h.actions.splitPane(target.id, "bottom");
+  await settled();
+  assert.equal(getPanes(h.state().workspaces[0].root).length, 6);
+  assert.equal(getPaneDepth(h.state().workspaces[0].root, cappedId), 4);
+});
+
+test("queued split requests recheck depth before resolving cwd or starting another PTY", async () => {
+  const target = pane("queued", "/queued");
+  const h = harness(layoutFixture(nestedLayout(3, target), target.id));
+  h.controller.performAction("splitUp");
+  h.controller.performAction("splitLeft");
+  h.actions.splitPane(target.id, "right");
+  await settled();
+  assert.equal(getPaneDepth(h.state().workspaces[0].root, target.id), 4);
+  assert.equal(h.sent.filter((item) => item.type === "start").length, 1);
+  assert.equal(
+    h.requests.filter((item) => item.kind === "resolveCwd").length,
+    1,
+  );
+});
+
+test("a tab drop at the depth limit is rejected before moving or replacing any terminal", async () => {
+  const target = pane("drop-target", "/target");
+  const initial = layoutFixture(nestedLayout(4, target), target.id);
+  initial.workspaces.push({
+    id: "two",
+    name: "^2",
+    root: pane("source", "/source"),
+  });
+  const h = harness(initial);
+  const before = structuredClone(h.state());
+  assert.equal(h.actions.canSplitTabIntoPane("source-1", target.id), false);
+  h.actions.splitTabIntoPane("source-1", target.id, "left");
+  await settled();
+  assert.deepEqual(h.state(), before);
+  assert.deepEqual(h.sent, []);
+  assert.deepEqual(h.requests, []);
+  assert.deepEqual(h.disposed, []);
+});
+
+test("moving a sole sibling tab can reuse the fourth split level without restarting its protected session", async () => {
+  const target = pane("drop-reuse", "/target");
+  const root = nestedLayout(4, target);
+  const source = getPanes(root).find(
+    (item) => item.id === "drop-reuse-sibling-0",
+  )!;
+  source.tabs.splice(1);
+  source.tabs[0].backend = "tmux";
+  source.tabs[0].backendSessionId = "owned-protected-session";
+  const moved = structuredClone(source.tabs[0]);
+  const beforeSessions = getTabs(root)
+    .map((tab) => tab.sessionId)
+    .sort();
+  const h = harness(layoutFixture(root, target.id));
+  assert.equal(h.actions.canSplitPane(target.id), false);
+  assert.equal(h.actions.canSplitTabIntoPane(moved.id, target.id), true);
+  h.actions.splitTabIntoPane(moved.id, target.id, "left");
+  await settled();
+  const afterRoot = h.state().workspaces[0].root;
+  const fresh = getPanes(afterRoot).find((item) =>
+    item.tabs.some((tab) => tab.id === moved.id),
+  )!;
+  assert.equal(getPaneDepth(afterRoot, target.id), 4);
+  assert.equal(getPaneDepth(afterRoot, fresh.id), 4);
+  assert.deepEqual(fresh.tabs, [moved]);
+  assert.deepEqual(
+    getTabs(afterRoot)
+      .map((tab) => tab.sessionId)
+      .sort(),
+    beforeSessions,
+  );
+  assert.deepEqual(h.sent, []);
+  assert.deepEqual(h.requests, []);
+  assert.deepEqual(h.disposed, []);
+});
+
+test("dropping onto a full workspace cannot create a fifth split level or remove the source tab", async () => {
+  const target = pane("full-target", "/full");
+  target.tabs = Array.from({ length: 9 }, (_, index) => ({
+    ...target.tabs[0],
+    id: `full-${index}`,
+    sessionId: `full-session-${index}`,
+  }));
+  target.activeTabId = target.tabs[0].id;
+  const initial = layoutFixture(nestedLayout(4, target), target.id);
+  initial.workspaces.push({
+    id: "two",
+    name: "^2",
+    root: pane("source", "/source"),
+  });
+  const h = harness(initial);
+  const before = structuredClone(h.state());
+  h.actions.moveTabToWorkspace("source-1", "one");
+  await settled();
+  assert.deepEqual(h.state(), before);
+  assert.deepEqual(h.sent, []);
+  assert.deepEqual(h.disposed, []);
+});
+
+test("legacy layouts deeper than four remain intact while further splits are blocked", async () => {
+  const target = pane("legacy", "/saved");
+  const h = harness(layoutFixture(nestedLayout(6, target), target.id));
+  const before = structuredClone(h.state());
+  assert.equal(getPaneDepth(h.state().workspaces[0].root, target.id), 6);
+  assert.equal(h.actions.canSplitPane(target.id), false);
+  h.actions.splitPane(target.id, "bottom");
+  await settled();
+  assert.deepEqual(h.state(), before);
+  assert.deepEqual(h.sent, []);
+  assert.deepEqual(h.requests, []);
 });
 
 test("explicit cwd/profile override inheritance through the command action", async () => {

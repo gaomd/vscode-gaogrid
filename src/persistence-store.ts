@@ -2,6 +2,9 @@ import type { LayoutNode, PersistedState, TerminalTab } from "./model";
 
 export const STATE_KEY = "gaogrid.state.v2";
 export const LEGACY_STATE_KEY = "gaogrid.state.v1";
+// Keep older, deeper layouts intact. New splits enforce their product limit
+// separately; recovery's bound only guards malformed or excessive input.
+const MAX_RESTORE_DEPTH = 64;
 
 /** Copy and validate saved layout metadata; never recover executable commands. */
 export function restoreState(saved: unknown): PersistedState {
@@ -31,7 +34,8 @@ export function restoreState(saved: unknown): PersistedState {
 }
 
 function restoreNode(value: unknown, depth = 0): LayoutNode | null {
-  if (!value || typeof value !== "object" || depth > 64) return null;
+  if (!value || typeof value !== "object" || depth > MAX_RESTORE_DEPTH)
+    return null;
   const node = value as LayoutNode;
   if (typeof node.id !== "string") return null;
   if (node.type === "split") {

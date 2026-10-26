@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { restoreState } from "../src/persistence-store";
+import { getPaneDepth, getTabs } from "../src/webview/layout";
+import type { LayoutNode } from "../src/model";
 
 const tab = {
   id: "tab",
@@ -20,6 +22,47 @@ const pane = {
   tabs: [tab],
   lastKnownCwd: "/saved",
 };
+
+test("recovery preserves sessions in legacy layouts deeper than the new split limit", () => {
+  let root: LayoutNode = {
+    ...pane,
+    type: "pane",
+    tabs: [{ ...tab, backend: "direct" }],
+  };
+  for (let level = 0; level < 6; level++) {
+    root = {
+      type: "split",
+      id: `legacy-${level}`,
+      direction: "horizontal",
+      ratio: 0.5,
+      first: root,
+      second: {
+        ...pane,
+        type: "pane",
+        id: `sibling-${level}`,
+        activeTabId: `tab-${level}`,
+        tabs: [
+          {
+            ...tab,
+            backend: "direct",
+            id: `tab-${level}`,
+            sessionId: `pty-${level}`,
+          },
+        ],
+      },
+    };
+  }
+  const recovered = restoreState({
+    activeWorkspaceId: "ws",
+    workspaces: [{ id: "ws", name: "^1", focusedPaneId: "pane", root }],
+  });
+  assert.equal(getPaneDepth(recovered.workspaces[0].root, "pane"), 6);
+  assert.deepEqual(recovered.workspaces[0].root, root);
+  assert.deepEqual(
+    getTabs(recovered.workspaces[0].root).map((item) => item.sessionId),
+    getTabs(root).map((item) => item.sessionId),
+  );
+});
 
 test("restart recovery preserves workspace, split, pane, tab, cwd and shell identity", () => {
   const saved = {

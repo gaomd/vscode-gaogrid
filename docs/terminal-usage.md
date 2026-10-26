@@ -14,24 +14,47 @@ GaoGrid supports up to nine workspaces and up to nine terminal tabs per pane.
 Double-click a tab or workspace to close it. Keyboard shortcuts apply while
 GaoGrid has focus:
 
-| Shortcut    | Action                                    |
-| ----------- | ----------------------------------------- |
-| `⌘N`        | New workspace                             |
-| `⌘T`        | New tab in the focused pane               |
-| `⌘W`        | Close the focused pane's active tab       |
-| `⌘D`        | Detach window / attach to sidebar         |
-| `⌘X`        | Maximize / restore the secondary sidebar  |
-| `Ctrl+1–9`  | Switch workspace                          |
-| `⌘1–9`      | Switch tab in the focused pane            |
-| `⌘⇧[`       | Previous tab in the focused pane          |
-| `⌘⇧]`       | Next tab in the focused pane              |
-| `⌘+` / `⌘-` | Adjust the focused terminal's font size   |
-| `⌘0`        | Restore the configured terminal font size |
+| Shortcut      | Action                                    |
+| ------------- | ----------------------------------------- |
+| `⌘N`          | New workspace                             |
+| `⌘T`          | New tab in the focused pane               |
+| `⌥⇧↑` / `⌥⇧T` | New pane above the focused pane           |
+| `⌥⇧↓` / `⌥⇧D` | New pane below the focused pane           |
+| `⌥⇧←` / `⌥⇧L` | New pane to the left of the focused pane  |
+| `⌥⇧→` / `⌥⇧R` | New pane to the right of the focused pane |
+| `⌘W`          | Close the focused pane's active tab       |
+| `⌘D`          | Detach window / attach to sidebar         |
+| `⌘X`          | Maximize / restore the secondary sidebar  |
+| `Ctrl+1–9`    | Switch workspace                          |
+| `⌘1–9`        | Switch tab in the focused pane            |
+| `⌘⇧[`         | Previous tab in the focused pane          |
+| `⌘⇧]`         | Next tab in the focused pane              |
+| `⌘+` / `⌘-`   | Adjust the focused terminal's font size   |
+| `⌘0`          | Restore the configured terminal font size |
 
 Tab cycling wraps at the first and last tabs. Inside a terminal, `Shift+Enter`
 sends a distinct key sequence so Codex can insert a newline without submitting
 the prompt. Terminal fonts and colors follow VS Code's terminal settings and
 current theme.
+
+## Splitting Panes
+
+Both shortcut families create a new terminal on the requested side of the focused
+pane. `T`, `D`, `L`, and `R` stand for Top, Down, Left, and Right. The new pane
+inherits the source terminal's cwd and receives keyboard focus. Other panes and
+their running terminals stay in place.
+
+The toolbar buttons are ordered **Split Down**, then **Split Right**. All four
+directions are available in the pane's context menu and **More Pane Actions**.
+Keep Shift in these shortcuts so ordinary Option/Alt word navigation and shell
+bindings remain available.
+
+Splits support at most four nesting levels, counting the initial pane as depth
+zero. At the limit, split buttons and menu items are disabled, and shortcuts or
+tab drops cannot add another level. Moving an existing tab is still allowed when
+removing its old pane keeps the resulting layout within the limit. Older saved
+layouts retain their terminals and structure; over-limit branches cannot be
+split further.
 
 ## Dedicated Window
 

@@ -1,4 +1,3 @@
-import type { SplitNode } from "../../model";
 import type { WindowPresentation } from "../../terminal-protocol";
 
 export interface WorkspaceActions {
@@ -24,7 +23,9 @@ export interface WorkspaceActions {
   moveTabToWorkspace(tabId: string, workspaceId: string): void;
   moveTabToNewWorkspace(tabId: string, targetIndex?: number): void;
   reorderWorkspace(workspaceId: string, targetIndex: number): void;
-  splitPane(paneId: string, direction: SplitNode["direction"]): void;
+  canSplitPane(paneId: string): boolean;
+  canSplitTabIntoPane(tabId: string, targetPaneId: string): boolean;
+  splitPane(paneId: string, side: DropSide): void;
   resizeSplit(splitId: string, ratio: number, complete: boolean): void;
   copyDirectory(paneId: string): void;
 }

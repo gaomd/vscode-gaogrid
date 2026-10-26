@@ -64,6 +64,22 @@
         "title": "GaoGrid: Close Terminal Pane"
       },
       {
+        "command": "gaogrid.splitUp",
+        "title": "GaoGrid: Split Up"
+      },
+      {
+        "command": "gaogrid.splitDown",
+        "title": "GaoGrid: Split Down"
+      },
+      {
+        "command": "gaogrid.splitLeft",
+        "title": "GaoGrid: Split Left"
+      },
+      {
+        "command": "gaogrid.splitRight",
+        "title": "GaoGrid: Split Right"
+      },
+      {
         "command": "gaogrid.switchWorkspace",
         "title": "GaoGrid: Switch Workspace"
       },
@@ -114,6 +130,46 @@
       ]
     },
     "keybindings": [
+      {
+        "command": "gaogrid.splitUp",
+        "key": "alt+shift+up",
+        "when": "gaogridFocus"
+      },
+      {
+        "command": "gaogrid.splitUp",
+        "key": "alt+shift+t",
+        "when": "gaogridFocus"
+      },
+      {
+        "command": "gaogrid.splitDown",
+        "key": "alt+shift+down",
+        "when": "gaogridFocus"
+      },
+      {
+        "command": "gaogrid.splitDown",
+        "key": "alt+shift+d",
+        "when": "gaogridFocus"
+      },
+      {
+        "command": "gaogrid.splitLeft",
+        "key": "alt+shift+left",
+        "when": "gaogridFocus"
+      },
+      {
+        "command": "gaogrid.splitLeft",
+        "key": "alt+shift+l",
+        "when": "gaogridFocus"
+      },
+      {
+        "command": "gaogrid.splitRight",
+        "key": "alt+shift+right",
+        "when": "gaogridFocus"
+      },
+      {
+        "command": "gaogrid.splitRight",
+        "key": "alt+shift+r",
+        "when": "gaogridFocus"
+      },
       {
         "command": "gaogrid.toggleWindow",
         "key": "cmd+d",

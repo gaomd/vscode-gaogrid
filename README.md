@@ -41,8 +41,6 @@ Next steps:
 
 - [ ] **Pane switching shortcuts:** Add configurable shortcuts to move focus
       between panes and focus the destination pane's active terminal tab.
-- [ ] **Split pane shortcuts:** Add configurable shortcuts to split the focused
-      pane vertically or horizontally and focus the new pane's terminal.
 - [ ] **Distribute panes evenly:** Add an action to balance split ratios so
       panes share the available space evenly within the recursive layout.
 - [ ] **Configurable keyboard shortcuts:** Respect user-defined VS Code

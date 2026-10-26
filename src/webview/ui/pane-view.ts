@@ -1,6 +1,6 @@
 import type { PaneNode } from "../../model";
 import { createIcon } from "./icons";
-import { MAX_TABS_PER_PANE } from "../constants";
+import { MAX_SPLIT_DEPTH, MAX_TABS_PER_PANE } from "../constants";
 import { TerminalFrontend } from "../terminal-frontend";
 import { createControl, reconcileChildren } from "./controls";
 import { MenuController, type MenuItem } from "./menu";
@@ -13,7 +13,7 @@ import {
   isTabDrag,
   showInsertionMarker,
   readDraggedTab,
-  TAB_DRAG_TYPE,
+  writeDraggedTab,
 } from "./tab-drag";
 
 export class PaneView {
@@ -25,6 +25,7 @@ export class PaneView {
   private readonly mounts = new Map<string, HTMLElement>();
   private readonly add: HTMLButtonElement;
   private readonly shield: HTMLButtonElement;
+  private readonly splitButtons: HTMLButtonElement[];
   private node: PaneNode;
 
   constructor(
@@ -69,21 +70,21 @@ export class PaneView {
           actions.protectTab(this.node.id, this.node.activeTabId);
       },
     });
-    tools.append(
-      this.shield,
+    this.splitButtons = [
       createControl({
-        label: "Split Horizontally",
-        icon: "split-horizontal",
-        className: "pane-header__split",
-        onClick: () => actions.splitPane(this.node.id, "horizontal"),
-      }),
-      createControl({
-        label: "Split Vertically",
+        label: "Split Down · ⌥⇧↓ / ⌥⇧D",
         icon: "split-vertical",
         className: "pane-header__split",
-        onClick: () => actions.splitPane(this.node.id, "vertical"),
+        onClick: () => actions.splitPane(this.node.id, "bottom"),
       }),
-    );
+      createControl({
+        label: "Split Right · ⌥⇧→ / ⌥⇧R",
+        icon: "split-horizontal",
+        className: "pane-header__split",
+        onClick: () => actions.splitPane(this.node.id, "right"),
+      }),
+    ];
+    tools.append(this.shield, ...this.splitButtons);
     const more = createControl({
       label: "More Pane Actions",
       icon: "ellipsis",
@@ -104,6 +105,12 @@ export class PaneView {
         if (!isTabDrag(event.dataTransfer)) return;
         event.preventDefault();
         event.stopPropagation();
+        const tabId = readDraggedTab(event.dataTransfer);
+        if (!tabId || !actions.canSplitTabIntoPane(tabId, this.node.id)) {
+          this.clearDropPreview();
+          event.dataTransfer!.dropEffect = "none";
+          return;
+        }
         const side = dropSideAt(
           this.surface.getBoundingClientRect(),
           event.clientX,
@@ -230,6 +237,13 @@ export class PaneView {
     this.add.title = this.add.disabled
       ? "Tab limit reached (9)"
       : "New Tab · ⌘T";
+    const canSplit = this.actions.canSplitPane(node.id);
+    for (const button of this.splitButtons) {
+      button.disabled = !canSplit;
+      button.title = canSplit
+        ? button.getAttribute("aria-label")!
+        : `Maximum split depth reached (${MAX_SPLIT_DEPTH})`;
+    }
     const ids = new Set(node.tabs.map((tab) => tab.id));
     for (const [id, button] of this.tabButtons) {
       if (!ids.has(id)) {
@@ -263,9 +277,9 @@ export class PaneView {
           });
         });
         button.addEventListener("dragstart", (event) => {
-          event.dataTransfer?.setData(TAB_DRAG_TYPE, tab.id);
-          if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
           clearAllDragIndicators();
+          writeDraggedTab(event.dataTransfer, tab.id);
+          if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
         });
         button.addEventListener("dragend", () => {
           clearAllDragIndicators();
@@ -380,35 +394,52 @@ export class PaneView {
 
   private menuItems(contextMenu = true): MenuItem[] {
     const id = this.node.id;
+    const splitDisabled = !this.actions.canSplitPane(id);
     const items: MenuItem[] = [
       {
-        label: "Copy Current Directory",
-        icon: "copy",
-        separatorBefore: contextMenu,
-        run: () => this.actions.copyDirectory(id),
+        label: "Split Up",
+        disabled: splitDisabled,
+        icon: "split-vertical",
+        shortcut: "⌥⇧↑ / ⌥⇧T",
+        run: () => this.actions.splitPane(id, "top"),
+      },
+      {
+        label: "Split Down",
+        disabled: splitDisabled,
+        icon: "split-vertical",
+        shortcut: "⌥⇧↓ / ⌥⇧D",
+        run: () => this.actions.splitPane(id, "bottom"),
+      },
+      {
+        label: "Split Left",
+        disabled: splitDisabled,
+        icon: "split-horizontal",
+        shortcut: "⌥⇧← / ⌥⇧L",
+        run: () => this.actions.splitPane(id, "left"),
+      },
+      {
+        label: "Split Right",
+        disabled: splitDisabled,
+        icon: "split-horizontal",
+        shortcut: "⌥⇧→ / ⌥⇧R",
+        run: () => this.actions.splitPane(id, "right"),
       },
     ];
     if (contextMenu)
-      items.unshift(
-        {
-          label: "Split Vertically",
-          icon: "split-vertical",
-          run: () => this.actions.splitPane(id, "vertical"),
-        },
-        {
-          label: "Split Horizontally",
-          icon: "split-horizontal",
-          run: () => this.actions.splitPane(id, "horizontal"),
-        },
-        {
-          label: "New Tab",
-          icon: "add",
-          shortcut: "⌘T",
-          disabled: this.node.tabs.length >= MAX_TABS_PER_PANE,
-          separatorBefore: true,
-          run: () => this.actions.createTab(id),
-        },
-      );
+      items.push({
+        label: "New Tab",
+        icon: "add",
+        shortcut: "⌘T",
+        disabled: this.node.tabs.length >= MAX_TABS_PER_PANE,
+        separatorBefore: true,
+        run: () => this.actions.createTab(id),
+      });
+    items.push({
+      label: "Copy Current Directory",
+      icon: "copy",
+      separatorBefore: true,
+      run: () => this.actions.copyDirectory(id),
+    });
     return items;
   }
 }

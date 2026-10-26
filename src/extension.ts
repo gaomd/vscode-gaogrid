@@ -821,6 +821,10 @@ export function activate(context: vscode.ExtensionContext) {
     ),
   );
   for (const action of [
+    "splitUp",
+    "splitDown",
+    "splitLeft",
+    "splitRight",
     "previousTab",
     "nextTab",
     "increaseFontSize",
