@@ -171,6 +171,28 @@ name list.
 Other unresolved drops use a native picker. File contents are never read or
 uploaded, and the general clipboard is never accessed.
 
+`terminal-input.ts` handles keyboard input through xterm's public
+[`attachCustomKeyEventHandler` and `input` APIs](https://xtermjs.org/docs/api/terminal/classes/terminal/).
+On macOS, ordinary punctuation waits for the browser's committed text instead
+of xterm's early keydown encoding, preserving the input method's full-width or
+half-width choice. A capture-phase
+[`beforeinput` handler](https://developer.mozilla.org/en-US/docs/Web/API/Element/beforeinput_event)
+consumes the committed text once, with `input` handling non-cancelable insertions.
+Composition, dead-key completion, letters, control keys, and modifier chords stay
+on xterm's existing paths. Shift+Enter retains its CSI-u encoding. The input
+listeners follow the terminal host's mount and disposal lifecycle.
+
+Terminal CSS disables contextual CJK punctuation compression with
+`text-spacing-trim: space-all`. In newer Chromium versions, the DOM renderer's
+repeated-glyph measurements otherwise disagree with the rendered widths of
+characters such as `（）` and `，。`, shifting displayed text away from the cursor
+grid and IME preview. This property also reaches xterm's width-measurement
+elements through inheritance. See the
+[upstream width-cache report](https://github.com/xtermjs/xterm.js/issues/6058).
+When checking IME input manually, include mixed ASCII, Chinese text, full-width
+brackets and punctuation, and an uncommitted composition after that text with
+GPU acceleration off, so the DOM renderer is exercised.
+
 Planned work is tracked in the [project TODO](../README.md#todo).
 
 ### Protected Sessions

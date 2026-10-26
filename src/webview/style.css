@@ -378,6 +378,11 @@ button {
   height: 100%;
 }
 
+.xterm {
+  /* Fixed cells and the DOM renderer's width cache need identical glyph widths. */
+  text-spacing-trim: space-all;
+}
+
 .terminal-mount[hidden] {
   display: none;
 }

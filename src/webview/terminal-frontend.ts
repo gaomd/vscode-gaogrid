@@ -8,6 +8,7 @@ import type { TerminalTab } from "../model";
 import { readTerminalOptions } from "./terminal-theme";
 import { TerminalScrollbar } from "./terminal-scrollbar";
 import { installTerminalDrop } from "./terminal-drop";
+import { installTerminalInput } from "./terminal-input";
 
 interface TerminalSurface {
   terminal: Terminal;
@@ -21,6 +22,7 @@ interface TerminalSurface {
   webglFailed?: boolean;
   replaying?: boolean;
   disposeDrop(): void;
+  disposeInput(): void;
 }
 
 /** Owns terminal rendering and focus; it has no layout or persistence logic. */
@@ -62,6 +64,8 @@ export class TerminalFrontend {
       if (existing.host !== host) {
         this.resizeObserver.unobserve(existing.host);
         existing.disposeDrop();
+        existing.disposeInput();
+        existing.disposeInput = installTerminalInput(existing.terminal, host);
         existing.disposeDrop = this.installDrop(
           host,
           existing.terminal,
@@ -103,23 +107,6 @@ export class TerminalFrontend {
     terminal.onData((data) =>
       this.send({ type: "input", sessionId: tab.sessionId, data }),
     );
-    terminal.attachCustomKeyEventHandler((event) => {
-      if (
-        event.key !== "Enter" ||
-        !event.shiftKey ||
-        event.altKey ||
-        event.ctrlKey ||
-        event.metaKey ||
-        event.isComposing ||
-        event.keyCode === 229
-      )
-        return true;
-      event.preventDefault();
-      // xterm maps Shift+Enter to plain Enter. CSI-u preserves the modifier so
-      // applications such as Codex can insert a newline instead of submitting.
-      if (event.type === "keydown") terminal.input("\x1b[13;2u");
-      return false;
-    });
     terminal.onResize(({ cols, rows }) =>
       this.send({ type: "resize", sessionId: tab.sessionId, cols, rows }),
     );
@@ -130,6 +117,7 @@ export class TerminalFrontend {
       sessionId: tab.sessionId,
       opened: false,
       disposeDrop: this.installDrop(host, terminal, tab.sessionId),
+      disposeInput: installTerminalInput(terminal, host),
     });
     this.sessionTabs.set(tab.sessionId, tab.id);
     this.resizeObserver.observe(host);
@@ -233,6 +221,7 @@ export class TerminalFrontend {
     if (surface) {
       this.resizeObserver.unobserve(surface.host);
       surface.disposeDrop();
+      surface.disposeInput();
       surface.scrollbar?.dispose();
       surface.terminal.dispose();
     }
