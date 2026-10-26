@@ -6,6 +6,7 @@ interface ShortcutEvent {
   altKey: boolean;
   shiftKey: boolean;
   isComposing?: boolean;
+  keyCode?: number;
 }
 
 interface ShortcutAction {
@@ -17,7 +18,18 @@ interface ShortcutAction {
 export function resolveShortcut(
   event: ShortcutEvent,
 ): ShortcutAction | undefined {
-  if (event.isComposing) return;
+  if (event.isComposing || event.keyCode === 229) return;
+  if (event.altKey && event.ctrlKey && !event.shiftKey && !event.metaKey) {
+    const action = (
+      {
+        ArrowUp: "focusPaneUp",
+        ArrowDown: "focusPaneDown",
+        ArrowLeft: "focusPaneLeft",
+        ArrowRight: "focusPaneRight",
+      } as Record<string, string>
+    )[event.key];
+    return action ? { action } : undefined;
+  }
   if (event.altKey && event.shiftKey && !event.metaKey && !event.ctrlKey) {
     // On macOS, Option changes event.key to a glyph. Use the physical letter
     // key so both shortcut families work without inserting terminal text.

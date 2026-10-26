@@ -727,3 +727,59 @@ test("the backend creation API accepts tmux directly without first creating a di
     "tmux",
   );
 });
+
+test("pane focus commands select the neighboring pane's active terminal and preserve sessions", () => {
+  const initial = fixture();
+  initial.workspaces[0].root = {
+    type: "split",
+    id: "navigation-columns",
+    direction: "horizontal",
+    ratio: 0.4,
+    first: {
+      type: "split",
+      id: "navigation-left",
+      direction: "vertical",
+      ratio: 0.5,
+      first: pane("nav-a", "/a"),
+      second: pane("nav-b", "/b"),
+    },
+    second: {
+      type: "split",
+      id: "navigation-right",
+      direction: "vertical",
+      ratio: 0.5,
+      first: pane("nav-c", "/c"),
+      second: pane("nav-d", "/d"),
+    },
+  };
+  initial.workspaces[0].focusedPaneId = "nav-a";
+  for (const item of getPanes(initial.workspaces[0].root))
+    item.activeTabId = `${item.id}-2`;
+  const h = harness(initial);
+  const before = structuredClone(h.state());
+  for (const [action, paneId] of [
+    ["focusPaneRight", "nav-c"],
+    ["focusPaneDown", "nav-d"],
+    ["focusPaneLeft", "nav-b"],
+    ["focusPaneUp", "nav-a"],
+  ]) {
+    h.controller.performAction(action);
+    assert.equal(h.state().workspaces[0].focusedPaneId, paneId);
+    assert.equal(h.focused.at(-1), `${paneId}-2`);
+    assert.deepEqual(h.state().workspaces[0].root, before.workspaces[0].root);
+    assert.deepEqual(h.state().workspaces[1], before.workspaces[1]);
+    assert.equal(h.state().activeWorkspaceId, "one");
+  }
+  assert.deepEqual(h.sent, []);
+  assert.deepEqual(h.requests, []);
+  assert.deepEqual(h.disposed, []);
+  const count = h.focused.length;
+  h.controller.performAction("focusPaneLeft");
+  h.controller.performAction("focusPaneUp");
+  assert.equal(
+    h.focused.length,
+    count,
+    "outer edges do not wrap or send terminal input",
+  );
+  assert.deepEqual(h.state(), before);
+});

@@ -22,6 +22,8 @@ GaoGrid has focus:
 | `⌥⇧↓` / `⌥⇧D` | New pane below the focused pane           |
 | `⌥⇧←` / `⌥⇧L` | New pane to the left of the focused pane  |
 | `⌥⇧→` / `⌥⇧R` | New pane to the right of the focused pane |
+| `⌃⌥↑` / `⌃⌥↓` | Focus the pane above / below              |
+| `⌃⌥←` / `⌃⌥→` | Focus the pane to the left / right        |
 | `⌘W`          | Close the focused pane's active tab       |
 | `⌘D`          | Detach window / attach to sidebar         |
 | `⌘X`          | Maximize / restore the secondary sidebar  |
@@ -55,6 +57,14 @@ tab drops cannot add another level. Moving an existing tab is still allowed when
 removing its old pane keeps the resulting layout within the limit. Older saved
 layouts retain their terminals and structure; over-limit branches cannot be
 split further.
+
+## Switching Panes
+
+Use `Alt+Ctrl+↑/↓/←/→` (`⌃⌥↑/↓/←/→` on macOS) to focus the neighboring pane
+in that direction and its active terminal tab. Navigation follows the visual
+layout across nested splits. At an outer edge, focus stays in place; it does not
+wrap to the opposite side or move to another workspace. These four focus commands
+are also available in the Command Palette and VS Code's Keyboard Shortcuts editor.
 
 ## Dedicated Window
 

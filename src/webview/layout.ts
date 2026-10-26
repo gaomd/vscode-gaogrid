@@ -6,6 +6,80 @@ import type {
 } from "../model";
 import { MAX_SPLIT_DEPTH } from "./constants";
 
+export type PaneDirection = "up" | "down" | "left" | "right";
+
+/** Resolve neighbors from the split geometry, independently of tree depth. */
+export function findAdjacentPane(
+  root: LayoutNode | null,
+  paneId: string,
+  direction: PaneDirection,
+): PaneNode | undefined {
+  const panes: {
+    pane: PaneNode;
+    left: number;
+    top: number;
+    right: number;
+    bottom: number;
+  }[] = [];
+  const visit = (
+    node: LayoutNode | null,
+    left: number,
+    top: number,
+    right: number,
+    bottom: number,
+  ) => {
+    if (!node) return;
+    if (node.type === "pane") {
+      panes.push({ pane: node, left, top, right, bottom });
+      return;
+    }
+    if (node.direction === "horizontal") {
+      const edge = left + (right - left) * node.ratio;
+      visit(node.first, left, top, edge, bottom);
+      visit(node.second, edge, top, right, bottom);
+    } else {
+      const edge = top + (bottom - top) * node.ratio;
+      visit(node.first, left, top, right, edge);
+      visit(node.second, left, edge, right, bottom);
+    }
+  };
+  visit(root, 0, 0, 1, 1);
+  const source = panes.find(({ pane }) => pane.id === paneId);
+  if (!source) return;
+  const horizontal = direction === "left" || direction === "right";
+  const start = horizontal ? "top" : "left";
+  const end = horizontal ? "bottom" : "right";
+  let best: { pane: PaneNode; distance: number; offset: number } | undefined;
+  const epsilon = 1e-9;
+  for (const candidate of panes) {
+    if (candidate === source) continue;
+    const overlap =
+      Math.min(source[end], candidate[end]) -
+      Math.max(source[start], candidate[start]);
+    if (overlap <= epsilon) continue;
+    const distance =
+      direction === "left"
+        ? source.left - candidate.right
+        : direction === "right"
+          ? candidate.left - source.right
+          : direction === "up"
+            ? source.top - candidate.bottom
+            : candidate.top - source.bottom;
+    if (distance < -epsilon) continue;
+    const offset = Math.abs(
+      (source[start] + source[end]) / 2 -
+        (candidate[start] + candidate[end]) / 2,
+    );
+    if (
+      !best ||
+      distance < best.distance - epsilon ||
+      (Math.abs(distance - best.distance) <= epsilon && offset < best.offset)
+    )
+      best = { pane: candidate.pane, distance, offset };
+  }
+  return best?.pane;
+}
+
 /** The initial pane has depth zero; each enclosing split adds one level. */
 export function getPaneDepth(
   node: LayoutNode | null,

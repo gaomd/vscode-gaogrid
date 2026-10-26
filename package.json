@@ -80,6 +80,22 @@
         "title": "GaoGrid: Split Right"
       },
       {
+        "command": "gaogrid.focusPaneUp",
+        "title": "GaoGrid: Focus Pane Above"
+      },
+      {
+        "command": "gaogrid.focusPaneDown",
+        "title": "GaoGrid: Focus Pane Below"
+      },
+      {
+        "command": "gaogrid.focusPaneLeft",
+        "title": "GaoGrid: Focus Pane Left"
+      },
+      {
+        "command": "gaogrid.focusPaneRight",
+        "title": "GaoGrid: Focus Pane Right"
+      },
+      {
         "command": "gaogrid.switchWorkspace",
         "title": "GaoGrid: Switch Workspace"
       },
@@ -130,6 +146,26 @@
       ]
     },
     "keybindings": [
+      {
+        "command": "gaogrid.focusPaneUp",
+        "key": "alt+ctrl+up",
+        "when": "gaogridFocus"
+      },
+      {
+        "command": "gaogrid.focusPaneDown",
+        "key": "alt+ctrl+down",
+        "when": "gaogridFocus"
+      },
+      {
+        "command": "gaogrid.focusPaneLeft",
+        "key": "alt+ctrl+left",
+        "when": "gaogridFocus"
+      },
+      {
+        "command": "gaogrid.focusPaneRight",
+        "key": "alt+ctrl+right",
+        "when": "gaogridFocus"
+      },
       {
         "command": "gaogrid.splitUp",
         "key": "alt+shift+up",

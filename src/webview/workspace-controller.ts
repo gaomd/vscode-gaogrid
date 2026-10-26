@@ -8,6 +8,7 @@ import type {
 import { MAX_TABS_PER_PANE, MAX_WORKSPACES } from "./constants";
 import {
   canSplitPane,
+  findAdjacentPane,
   findNode,
   findPane,
   getPanes,
@@ -15,6 +16,7 @@ import {
   removeTabFromState,
   removePane,
   replaceNode,
+  type PaneDirection,
 } from "./layout";
 import { TerminalFrontend } from "./terminal-frontend";
 import { WorkspaceView } from "./ui/workspace-view";
@@ -203,6 +205,27 @@ export class WorkspaceController {
   }
 
   performAction(action: string, index?: number, options?: NewTerminalOptions) {
+    const direction = (
+      {
+        focusPaneUp: "up",
+        focusPaneDown: "down",
+        focusPaneLeft: "left",
+        focusPaneRight: "right",
+      } as Partial<Record<string, PaneDirection>>
+    )[action];
+    if (direction) {
+      const workspace = this.workspace();
+      const pane = this.focusedPane();
+      const target =
+        workspace &&
+        pane &&
+        findAdjacentPane(workspace.root, pane.id, direction);
+      if (target) {
+        this.focusPane(target.id);
+        if (target.activeTabId) this.terminals.focus(target.activeTabId);
+      }
+      return;
+    }
     if (action === "focusTerminal") {
       const pane = this.focusedPane();
       if (!this.presentation.transitioning && pane?.activeTabId)

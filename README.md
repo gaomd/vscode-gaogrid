@@ -39,8 +39,6 @@ architecture, and UI conventions.
 
 Next steps:
 
-- [ ] **Pane switching shortcuts:** Add configurable shortcuts to move focus
-      between panes and focus the destination pane's active terminal tab.
 - [ ] **Distribute panes evenly:** Add an action to balance split ratios so
       panes share the available space evenly within the recursive layout.
 - [ ] **Configurable keyboard shortcuts:** Respect user-defined VS Code
