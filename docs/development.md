@@ -61,6 +61,13 @@ create a Git tag, or push commits. Publishing requires authentication for the
 
 ## Webview Architecture And UI
 
+The manifest declares the same GaoGrid container in `secondarySidebar` first and
+`activitybar` second. Editors register the first supported location for a
+container ID: current VS Code uses the Secondary Sidebar, while older versions
+and Cursor use the Primary Sidebar fallback. Keep that declaration order and
+container ID so supported editors retain their default location and users can
+move the fallback container using the editor's native layout controls.
+
 The webview has three layers:
 
 - `main.ts` connects VS Code messages, focus, and shortcuts.

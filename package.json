@@ -285,6 +285,13 @@
           "title": "GaoGrid",
           "icon": "media/icon.svg"
         }
+      ],
+      "activitybar": [
+        {
+          "id": "gaogrid",
+          "title": "GaoGrid",
+          "icon": "media/icon.svg"
+        }
       ]
     },
     "views": {

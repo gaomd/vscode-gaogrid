@@ -1,5 +1,13 @@
 # Terminal Usage
 
+## Compatible Editors
+
+On recent VS Code versions, GaoGrid opens in the Secondary Sidebar. Editors
+based on older VS Code versions, including Cursor 2.6, register GaoGrid in the
+Primary Sidebar instead. Run **View: Move View** from the Command Palette, select
+**GaoGrid**, then **New Secondary Side Bar Entry**. The editor remembers that
+placement.
+
 ## Workspaces And Terminals
 
 GaoGrid supports up to nine workspaces and up to nine terminal tabs per pane.
