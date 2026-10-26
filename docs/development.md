@@ -109,9 +109,11 @@ Saved layouts are validated on recovery, with a fallback to the original v1 stor
   gives the first tab row a 4px top gutter; individual panes have no top padding.
 - Header controls align with the terminal surface's outer left and right edges.
   Terminal text keeps its own 4px inner padding.
-- Every control has a very light resting background; hover and selection use
-  shared surface tokens. Workspace and pane boundaries have no permanent
-  separators.
+- Chrome colors use the editor's `--vscode-*` theme variables in both VS Code and
+  compatible editors such as Cursor. Controls have a subtle theme-relative
+  resting background; hover, selection, menus, and focus use native theme tokens.
+  High-contrast themes also supply control borders. Workspace and pane boundaries
+  have no permanent separators.
 - A focused terminal gets an inset 1px border without changing its size.
 - Terminal surfaces, toolbar popovers, and context menus all use the shared
   `--gg-terminal-radius` token.

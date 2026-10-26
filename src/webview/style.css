@@ -1,15 +1,28 @@
 /* Shared geometry and chrome. Terminal colors remain owned by xterm. */
 :root {
-  color-scheme: light;
+  color-scheme: light dark;
   --gg-space: 4px;
-  --gg-surface: #fff;
-  --gg-label-surface: #fafafa;
-  --gg-hover-surface: #f0f0f0;
-  --gg-active-surface: #ededed;
-  --gg-text: #555;
-  --gg-text-muted: #777;
-  --gg-text-active: #222;
-  --gg-focus-border: #dedede;
+  --gg-surface: var(--vscode-editor-background);
+  --gg-label-surface: color-mix(
+    in srgb,
+    var(--vscode-foreground) 4%,
+    var(--gg-surface)
+  );
+  --gg-hover-surface: var(
+    --vscode-toolbar-hoverBackground,
+    color-mix(in srgb, var(--vscode-foreground) 8%, var(--gg-surface))
+  );
+  --gg-active-surface: var(
+    --vscode-list-inactiveSelectionBackground,
+    var(--gg-hover-surface)
+  );
+  --gg-text: var(--vscode-foreground);
+  --gg-text-muted: var(--vscode-descriptionForeground, var(--gg-text));
+  --gg-text-active: var(
+    --vscode-list-inactiveSelectionForeground,
+    var(--gg-text)
+  );
+  --gg-focus-border: var(--vscode-focusBorder);
   --gg-control-size: 20px;
   --gg-label-min-width: 28px;
   --gg-label-font-size: 12px;
@@ -43,6 +56,17 @@ body {
   font: var(--vscode-font-size, 13px) var(--vscode-font-family, sans-serif);
 }
 
+body.vscode-dark,
+body.vscode-high-contrast {
+  color-scheme: dark;
+}
+
+/* High-contrast light also carries the legacy high-contrast class. */
+body.vscode-light,
+body.vscode-high-contrast-light {
+  color-scheme: light;
+}
+
 button {
   font: inherit;
 }
@@ -62,6 +86,7 @@ button {
   border-radius: var(--gg-label-radius);
   background: var(--gg-label-surface);
   color: var(--gg-text);
+  box-shadow: inset 0 0 0 1px var(--vscode-contrastBorder, transparent);
   line-height: 1;
   text-decoration: none;
   white-space: nowrap;
@@ -93,16 +118,21 @@ button {
 
 .control:not(:disabled):hover {
   background: var(--gg-hover-surface);
-  color: var(--gg-text-active);
 }
 
-.control[aria-selected="true"] {
+.control[aria-selected="true"],
+.control[aria-selected="true"]:not(:disabled):hover {
   background: var(--gg-active-surface);
   color: var(--gg-text-active);
+  box-shadow: inset 0 0 0 1px
+    var(
+      --vscode-contrastActiveBorder,
+      var(--vscode-contrastBorder, transparent)
+    );
 }
 
 .control:focus-visible {
-  outline: 1px solid #c8c8c8;
+  outline: 1px solid var(--gg-focus-border);
   outline-offset: 1px;
 }
 
@@ -264,7 +294,7 @@ button {
   position: absolute;
   z-index: 8;
   border-radius: 999px;
-  background: var(--vscode-sash-hoverBorder, #e6e6e6);
+  background: var(--vscode-sash-hoverBorder, var(--gg-focus-border));
   pointer-events: none;
 }
 
@@ -400,15 +430,24 @@ button {
 
 .terminal-scrollbar::-webkit-scrollbar-thumb {
   border-radius: 999px;
-  background: var(--vscode-scrollbarSlider-background, rgb(0 0 0 / 20%));
+  background: var(
+    --vscode-scrollbarSlider-background,
+    color-mix(in srgb, var(--gg-text) 20%, transparent)
+  );
 }
 
 .terminal-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: var(--vscode-scrollbarSlider-hoverBackground, rgb(0 0 0 / 30%));
+  background: var(
+    --vscode-scrollbarSlider-hoverBackground,
+    color-mix(in srgb, var(--gg-text) 30%, transparent)
+  );
 }
 
 .terminal-scrollbar::-webkit-scrollbar-thumb:active {
-  background: var(--vscode-scrollbarSlider-activeBackground, rgb(0 0 0 / 40%));
+  background: var(
+    --vscode-scrollbarSlider-activeBackground,
+    color-mix(in srgb, var(--gg-text) 40%, transparent)
+  );
 }
 
 /* Top spacing belongs to the stage/split structure, not individual panes.
@@ -481,7 +520,7 @@ button {
 
 .split-view__sash[data-hovered="true"]::after,
 .split-view__sash[data-dragging="true"]::after {
-  background: var(--vscode-sash-hoverBorder, #e6e6e6);
+  background: var(--vscode-sash-hoverBorder, var(--gg-focus-border));
 }
 
 /* The same menu portal serves the ellipsis button and pane context menu. */
@@ -497,11 +536,15 @@ button {
   padding: var(--gg-space);
   overflow-x: hidden;
   overflow-y: auto;
-  border: 1px solid #e6e6e6;
+  border: 1px solid
+    var(
+      --vscode-menu-border,
+      var(--vscode-widget-border, var(--vscode-contrastBorder, transparent))
+    );
   border-radius: var(--gg-terminal-radius);
-  background: var(--gg-surface);
-  color: var(--gg-text);
-  box-shadow: 0 4px 16px rgb(0 0 0 / 10%);
+  background: var(--vscode-menu-background, var(--gg-surface));
+  color: var(--vscode-menu-foreground, var(--gg-text));
+  box-shadow: 0 4px 16px var(--vscode-widget-shadow, transparent);
 }
 
 .action-menu__item {
@@ -521,8 +564,10 @@ button {
 
 .action-menu__item:not(:disabled):hover,
 .action-menu__item:focus-visible {
-  outline: none;
-  background: var(--gg-hover-surface);
+  outline: 1px solid var(--vscode-menu-selectionBorder, transparent);
+  outline-offset: -1px;
+  background: var(--vscode-menu-selectionBackground, var(--gg-hover-surface));
+  color: var(--vscode-menu-selectionForeground, var(--gg-text));
 }
 
 .action-menu__item:disabled {
@@ -541,10 +586,15 @@ button {
   font: inherit;
 }
 
+.action-menu__item:not(:disabled):hover .action-menu__shortcut,
+.action-menu__item:focus-visible .action-menu__shortcut {
+  color: inherit;
+}
+
 .action-menu__separator {
   height: 1px;
   margin: var(--gg-space);
-  background: #f0f0f0;
+  background: var(--vscode-menu-separatorBackground, var(--gg-hover-surface));
 }
 
 .empty-state {
