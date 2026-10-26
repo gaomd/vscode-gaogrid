@@ -211,6 +211,14 @@ and application input modes from saved output. Live webview replay separately
 preserves the application's alternate screen and input/mouse modes. An old alternate application
 screen becomes normal text history before starting a fresh direct shell.
 
+Both frontend and headless terminals activate the Unicode 11 width provider
+before parsing any output or replay. This keeps Emoji cell widths consistent
+with shells such as macOS zsh, including right-prompt cursor movement.
+Snapshots saved with the previous Unicode 6 provider are still replayed; they
+are not discarded. Their old wrapping or already overwritten text cannot be
+reconstructed, but the recovery notice and fresh shell start on new lines so
+the old cursor position does not carry into the new prompt.
+
 `TerminalOutputStore` saves bounded snapshots atomically with same-user file
 permissions under VS Code storage. `PtyManager` checkpoints direct tabs while
 output arrives and flushes on shutdown. Explicit close deletes their snapshots.

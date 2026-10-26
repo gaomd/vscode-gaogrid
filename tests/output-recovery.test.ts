@@ -13,6 +13,7 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { spawn } from "node:child_process";
 import { Terminal } from "@xterm/headless";
+import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { TerminalHistory } from "../src/terminal-history";
 import { TerminalOutputStore } from "../src/terminal-output-store";
 import { PtyManager } from "../src/pty-manager";
@@ -32,6 +33,8 @@ async function render(data: string, cols = 80, rows = 24) {
     allowProposedApi: true,
     scrollback: 10000,
   });
+  terminal.loadAddon(new Unicode11Addon());
+  terminal.unicode.activeVersion = "11";
   await new Promise<void>((resolve) => terminal.write(data, resolve));
   const buffer = terminal.buffer.active;
   const text = Array.from(

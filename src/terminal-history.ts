@@ -1,5 +1,6 @@
 import { Terminal, type ITerminalAddon } from "@xterm/headless";
 import { SerializeAddon } from "@xterm/addon-serialize";
+import { Unicode11Addon } from "@xterm/addon-unicode11";
 
 export interface OutputSnapshot {
   version: 1;
@@ -22,6 +23,8 @@ export class TerminalHistory {
       scrollback: 10000,
       allowProposedApi: true,
     });
+    this.terminal.loadAddon(new Unicode11Addon() as unknown as ITerminalAddon);
+    this.terminal.unicode.activeVersion = "11";
     // SerializeAddon officially supports both browser and headless terminals.
     this.terminal.loadAddon(this.serializer as unknown as ITerminalAddon);
     for (const final of ["h", "l"])

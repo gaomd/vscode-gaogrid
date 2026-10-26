@@ -3,6 +3,7 @@ import { TerminalFitAddon } from "./terminal-fit";
 import { ImageAddon } from "@xterm/addon-image";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+import { Unicode11Addon } from "@xterm/addon-unicode11";
 import type { TerminalTab } from "../model";
 import { readTerminalOptions } from "./terminal-theme";
 import { TerminalScrollbar } from "./terminal-scrollbar";
@@ -87,6 +88,8 @@ export class TerminalFrontend {
       allowTransparency: false,
       rightClickSelectsWord: true,
     });
+    terminal.loadAddon(new Unicode11Addon());
+    terminal.unicode.activeVersion = "11";
     const fit = new TerminalFitAddon();
     terminal.loadAddon(fit);
     terminal.loadAddon(
