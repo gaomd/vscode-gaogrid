@@ -39,8 +39,6 @@ architecture, and UI conventions.
 
 Next steps:
 
-- [ ] **Distribute panes evenly:** Add an action to balance split ratios so
-      panes share the available space evenly within the recursive layout.
 - [ ] **Configurable keyboard shortcuts:** Respect user-defined VS Code
       keybindings across extension commands and webview keyboard handling. Keep
       shortcuts scoped to GaoGrid focus and update displayed shortcut labels.

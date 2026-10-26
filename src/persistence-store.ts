@@ -46,9 +46,12 @@ function restoreNode(value: unknown, depth = 0): LayoutNode | null {
       type: "split",
       id: node.id,
       direction: node.direction === "vertical" ? "vertical" : "horizontal",
-      ratio: Number.isFinite(node.ratio)
-        ? Math.max(0.12, Math.min(0.88, node.ratio))
-        : 0.5,
+      // Balancing a long row can legitimately produce ratios below the sash's
+      // manual-drag minimum. Preserve them instead of changing the saved layout.
+      ratio:
+        Number.isFinite(node.ratio) && node.ratio > 0 && node.ratio < 1
+          ? node.ratio
+          : 0.5,
       first,
       second,
     };

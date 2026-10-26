@@ -2,6 +2,7 @@ import type {
   LayoutNode,
   PaneNode,
   PersistedState,
+  SplitNode,
   TerminalTab,
 } from "../model";
 import { MAX_SPLIT_DEPTH } from "./constants";
@@ -97,6 +98,39 @@ export function getPaneDepth(
 export function canSplitPane(node: LayoutNode | null, paneId: string): boolean {
   const depth = getPaneDepth(node, paneId);
   return depth !== undefined && depth < MAX_SPLIT_DEPTH;
+}
+
+export function findParentSplit(
+  node: LayoutNode | null,
+  paneId: string,
+): SplitNode | undefined {
+  if (!node || node.type === "pane") return undefined;
+  if (node.first.id === paneId || node.second.id === paneId) return node;
+  return (
+    findParentSplit(node.first, paneId) || findParentSplit(node.second, paneId)
+  );
+}
+
+/** Same-axis splits form one row/column; perpendicular groups share one slot. */
+function splitSlots(
+  node: LayoutNode,
+  direction: SplitNode["direction"],
+): number {
+  if (node.type === "pane" || node.direction !== direction) return 1;
+  return splitSlots(node.first, direction) + splitSlots(node.second, direction);
+}
+
+export function distributePanes(node: LayoutNode, recursive = false): void {
+  if (node.type === "pane") return;
+  const first = splitSlots(node.first, node.direction);
+  const second = splitSlots(node.second, node.direction);
+  node.ratio = first / (first + second);
+  for (const child of [node.first, node.second])
+    if (
+      child.type === "split" &&
+      (recursive || child.direction === node.direction)
+    )
+      distributePanes(child, recursive);
 }
 
 export function getPanes(node: LayoutNode | null): PaneNode[] {

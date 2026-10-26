@@ -9,8 +9,10 @@ import { MAX_TABS_PER_PANE, MAX_WORKSPACES } from "./constants";
 import {
   canSplitPane,
   findAdjacentPane,
+  distributePanes,
   findNode,
   findPane,
+  findParentSplit,
   getPanes,
   getTabs,
   removeTabFromState,
@@ -74,6 +76,11 @@ export class WorkspaceController {
     transitioning: false,
   };
   private mutations: Promise<void> = Promise.resolve();
+  private lastDistribution?: {
+    workspaceId: string;
+    paneId: string;
+    time: number;
+  };
 
   // Serialize lifecycle mutations; switching/focusing terminals stays immediate.
   private enqueue(operation: () => Promise<void>) {
@@ -205,6 +212,32 @@ export class WorkspaceController {
   }
 
   performAction(action: string, index?: number, options?: NewTerminalOptions) {
+    if (action !== "distributePanes") this.lastDistribution = undefined;
+    if (action === "distributePanes" || action === "distributeWorkspacePanes") {
+      const workspace = this.workspace();
+      const pane = this.focusedPane();
+      if (!workspace || !pane) return;
+      const time = performance.now();
+      const all =
+        action === "distributeWorkspacePanes" ||
+        (this.lastDistribution?.workspaceId === workspace.id &&
+          this.lastDistribution.paneId === pane.id &&
+          time - this.lastDistribution.time <= 400);
+      this.lastDistribution = all
+        ? undefined
+        : { workspaceId: workspace.id, paneId: pane.id, time };
+      this.enqueue(async () => {
+        if (!this.state.workspaces.includes(workspace) || !workspace.root)
+          return;
+        const target = all
+          ? workspace.root
+          : findParentSplit(workspace.root, pane.id);
+        if (!target || target.type === "pane") return;
+        distributePanes(target, all);
+        this.commit();
+      });
+      return;
+    }
     const direction = (
       {
         focusPaneUp: "up",
@@ -301,6 +334,10 @@ export class WorkspaceController {
     }
   }
 
+  resetDistributionShortcut() {
+    this.lastDistribution = undefined;
+  }
+
   sessionEnded(sessionId: string) {
     this.enqueue(async () => {
       const tab = removeTabFromState(this.state, sessionId);
@@ -344,6 +381,7 @@ export class WorkspaceController {
     const workspace = this.workspace();
     if (!workspace || !findPane(workspace.root, paneId)) return;
     if (workspace.focusedPaneId !== paneId) {
+      this.resetDistributionShortcut();
       workspace.focusedPaneId = paneId;
       this.bridge.persist(this.state);
     }
@@ -375,6 +413,7 @@ export class WorkspaceController {
       !this.state.workspaces.some((workspace) => workspace.id === workspaceId)
     )
       return;
+    this.resetDistributionShortcut();
     this.state.activeWorkspaceId = workspaceId;
     this.commit();
   }
@@ -499,6 +538,7 @@ export class WorkspaceController {
   }
 
   private activateTab(paneId: string, tabId: string) {
+    this.resetDistributionShortcut();
     const workspace = this.workspace();
     const pane = findPane(workspace?.root || null, paneId);
     if (!workspace || !pane || !pane.tabs.some((tab) => tab.id === tabId))

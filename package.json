@@ -96,6 +96,14 @@
         "title": "GaoGrid: Focus Pane Right"
       },
       {
+        "command": "gaogrid.distributePanes",
+        "title": "GaoGrid: Distribute Panes Evenly"
+      },
+      {
+        "command": "gaogrid.distributeWorkspacePanes",
+        "title": "GaoGrid: Distribute All Workspace Panes Evenly"
+      },
+      {
         "command": "gaogrid.switchWorkspace",
         "title": "GaoGrid: Switch Workspace"
       },
@@ -146,6 +154,11 @@
       ]
     },
     "keybindings": [
+      {
+        "command": "gaogrid.distributePanes",
+        "key": "alt+shift+space",
+        "when": "gaogridFocus"
+      },
       {
         "command": "gaogrid.focusPaneUp",
         "key": "alt+ctrl+up",

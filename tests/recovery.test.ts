@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { restoreState } from "../src/persistence-store";
-import { getPaneDepth, getTabs } from "../src/webview/layout";
+import { distributePanes, getPaneDepth, getTabs } from "../src/webview/layout";
 import type { LayoutNode } from "../src/model";
 
 const tab = {
@@ -22,6 +22,45 @@ const pane = {
   tabs: [tab],
   lastKnownCwd: "/saved",
 };
+
+test("recovery preserves balanced ratios below the sash drag minimum", () => {
+  let serial = 0;
+  function columns(depth: number): LayoutNode {
+    if (!depth) {
+      const id = `balanced-${serial++}`;
+      return {
+        ...pane,
+        type: "pane",
+        id,
+        activeTabId: id,
+        tabs: [{ ...tab, backend: "direct", id, sessionId: id }],
+      };
+    }
+    return {
+      type: "split",
+      id: `columns-${depth}-${serial}`,
+      direction: "horizontal",
+      ratio: 0.5,
+      first: columns(depth - 1),
+      second: columns(depth - 1),
+    };
+  }
+  const root: LayoutNode = {
+    type: "split",
+    id: "balanced-root",
+    direction: "horizontal",
+    ratio: 0.5,
+    first: columns(0),
+    second: columns(3),
+  };
+  distributePanes(root, true);
+  assert.equal(root.ratio, 1 / 9);
+  const restored = restoreState({
+    activeWorkspaceId: "ws",
+    workspaces: [{ id: "ws", name: "^1", root }],
+  });
+  assert.deepEqual(restored.workspaces[0].root, root);
+});
 
 test("recovery preserves sessions in legacy layouts deeper than the new split limit", () => {
   let root: LayoutNode = {

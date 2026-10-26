@@ -110,6 +110,8 @@ document.addEventListener(
   "keydown",
   (event) => {
     const shortcut = resolveShortcut(event);
+    if (shortcut?.action !== "distributePanes")
+      workspaces.resetDistributionShortcut();
     if (!shortcut) return;
     if (shortcut.action === "toggleWindow" && !workspaces.canToggleWindow())
       return;
@@ -120,6 +122,7 @@ document.addEventListener(
       return;
     event.preventDefault();
     event.stopImmediatePropagation();
+    if (shortcut.action === "distributePanes" && event.repeat) return;
     workspaces.performAction(shortcut.action, shortcut.index);
   },
   true,
@@ -128,7 +131,10 @@ document.addEventListener(
 document.addEventListener("focusin", () =>
   send({ type: "focus", focused: true }),
 );
-window.addEventListener("blur", () => send({ type: "focus", focused: false }));
+window.addEventListener("blur", () => {
+  workspaces.resetDistributionShortcut();
+  send({ type: "focus", focused: false });
+});
 document.addEventListener("focusout", () => {
   queueMicrotask(() => {
     if (!document.hasFocus()) send({ type: "focus", focused: false });

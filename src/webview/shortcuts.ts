@@ -31,6 +31,8 @@ export function resolveShortcut(
     return action ? { action } : undefined;
   }
   if (event.altKey && event.shiftKey && !event.metaKey && !event.ctrlKey) {
+    if (event.code === "Space" || event.key === " ")
+      return { action: "distributePanes" };
     // On macOS, Option changes event.key to a glyph. Use the physical letter
     // key so both shortcut families work without inserting terminal text.
     const key = event.code?.startsWith("Key")

@@ -829,6 +829,8 @@ export function activate(context: vscode.ExtensionContext) {
     "focusPaneDown",
     "focusPaneLeft",
     "focusPaneRight",
+    "distributePanes",
+    "distributeWorkspacePanes",
     "previousTab",
     "nextTab",
     "increaseFontSize",

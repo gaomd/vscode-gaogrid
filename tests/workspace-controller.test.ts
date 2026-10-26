@@ -397,6 +397,192 @@ test("split shortcuts leave unshifted Option/Alt navigation, extra modifiers, an
   assert.equal(resolveShortcut({ ...base, metaKey: true }), undefined);
   assert.equal(resolveShortcut({ ...base, ctrlKey: true }), undefined);
   assert.equal(resolveShortcut({ ...base, isComposing: true }), undefined);
+  assert.equal(resolveShortcut({ ...base, keyCode: 229 }), undefined);
+});
+
+test("Alt+Shift+Space distributes panes without intercepting other modifiers or IME", () => {
+  const event = {
+    key: " ",
+    code: "Space",
+    altKey: true,
+    shiftKey: true,
+    metaKey: false,
+    ctrlKey: false,
+  };
+  assert.equal(resolveShortcut(event)?.action, "distributePanes");
+  assert.equal(
+    resolveShortcut({ ...event, key: "\u00a0" })?.action,
+    "distributePanes",
+  );
+  for (const override of [
+    { shiftKey: false },
+    { ctrlKey: true },
+    { metaKey: true },
+    { isComposing: true },
+    { keyCode: 229 },
+  ])
+    assert.equal(resolveShortcut({ ...event, ...override }), undefined);
+  assert.equal(
+    resolveShortcut({
+      ...event,
+      key: "1",
+      code: "Digit1",
+      altKey: false,
+      shiftKey: false,
+      ctrlKey: true,
+      keyCode: 229,
+    }),
+    undefined,
+  );
+});
+
+function distributionFixture(): PersistedState {
+  return {
+    activeWorkspaceId: "one",
+    workspaces: [
+      {
+        id: "one",
+        name: "^1",
+        focusedPaneId: "b",
+        root: {
+          type: "split",
+          id: "rows",
+          direction: "vertical",
+          ratio: 0.7,
+          first: {
+            type: "split",
+            id: "columns",
+            direction: "horizontal",
+            ratio: 0.2,
+            first: pane("a", "/a"),
+            second: {
+              type: "split",
+              id: "inner",
+              direction: "horizontal",
+              ratio: 0.3,
+              first: pane("b", "/b"),
+              second: pane("c", "/c"),
+            },
+          },
+          second: {
+            type: "split",
+            id: "lower",
+            direction: "vertical",
+            ratio: 0.25,
+            first: pane("d", "/d"),
+            second: pane("e", "/e"),
+          },
+        },
+      },
+      fixture().workspaces[1],
+    ],
+  };
+}
+
+test("one distribution balances the nearest split and preserves terminals, focus, and other groups", async () => {
+  const initial = distributionFixture();
+  const before = structuredClone(initial);
+  const h = harness(initial);
+  h.controller.performAction("distributePanes");
+  await settled();
+  const expected = structuredClone(before);
+  const rows = expected.workspaces[0].root!;
+  assert.equal(rows.type, "split");
+  if (
+    rows.type !== "split" ||
+    rows.first.type !== "split" ||
+    rows.first.second.type !== "split"
+  )
+    return;
+  rows.first.second.ratio = 0.5;
+  assert.deepEqual(h.state(), expected);
+  assert.equal(h.focused.at(-1), "b-1");
+  assert.deepEqual(h.sent, []);
+  assert.deepEqual(h.requests, []);
+  assert.deepEqual(h.disposed, []);
+});
+
+test("a double distribution within 400 ms balances every workspace group including three adjacent columns", async (t) => {
+  let now = 1000;
+  t.mock.method(performance, "now", () => now);
+  const initial = distributionFixture();
+  const before = structuredClone(initial);
+  const h = harness(initial);
+  h.controller.performAction("distributePanes");
+  now += 250;
+  h.controller.performAction("distributePanes");
+  await settled();
+  const expected = structuredClone(before);
+  const rows = expected.workspaces[0].root!;
+  if (
+    rows.type !== "split" ||
+    rows.first.type !== "split" ||
+    rows.first.second.type !== "split" ||
+    rows.second.type !== "split"
+  )
+    throw new Error("Invalid fixture");
+  rows.ratio = 1 / 3;
+  rows.first.ratio = 1 / 3;
+  rows.first.second.ratio = 0.5;
+  rows.second.ratio = 0.5;
+  assert.deepEqual(h.state(), expected);
+  assert.deepEqual(
+    getTabs(h.state().workspaces[0].root),
+    getTabs(before.workspaces[0].root),
+  );
+  assert.equal(h.focused.at(-1), "b-1");
+  assert.deepEqual(h.sent, []);
+  assert.deepEqual(h.requests, []);
+  assert.deepEqual(h.disposed, []);
+});
+
+test("timeout, intervening actions, and lost focus reset the distribution double press", async (t) => {
+  let now = 1000;
+  t.mock.method(performance, "now", () => now);
+  for (const reset of [
+    () => {
+      now += 401;
+    },
+    (h: ReturnType<typeof harness>) => h.controller.resetDistributionShortcut(),
+    (h: ReturnType<typeof harness>) =>
+      h.controller.performAction("focusTerminal"),
+    (h: ReturnType<typeof harness>) => {
+      h.actions.activateWorkspace("two");
+      h.actions.activateWorkspace("one");
+    },
+    (h: ReturnType<typeof harness>) => {
+      h.actions.focusPane("a");
+      h.actions.focusPane("b");
+    },
+  ]) {
+    const h = harness(distributionFixture());
+    h.controller.performAction("distributePanes");
+    await settled();
+    const afterSingle = structuredClone(h.state());
+    reset(h);
+    now += 50;
+    h.controller.performAction("distributePanes");
+    await settled();
+    assert.deepEqual(h.state(), afterSingle);
+  }
+});
+
+test("the workspace distribution command works directly and a single pane is unchanged", async () => {
+  const h = harness(distributionFixture());
+  h.controller.performAction("distributeWorkspacePanes");
+  await settled();
+  const root = h.state().workspaces[0].root!;
+  assert.equal(root.type, "split");
+  if (root.type === "split") assert.equal(root.ratio, 1 / 3);
+  const single = harness(layoutFixture(pane("only", "/only"), "only"));
+  const before = structuredClone(single.state());
+  single.controller.performAction("distributePanes");
+  single.controller.performAction("distributePanes");
+  single.controller.performAction("distributeWorkspacePanes");
+  await settled();
+  assert.deepEqual(single.state(), before);
+  assert.deepEqual(single.sent, []);
+  assert.deepEqual(single.requests, []);
 });
 
 test("splitting reaches depth four, blocks every further split entry point, and leaves shallower panes available", async () => {
