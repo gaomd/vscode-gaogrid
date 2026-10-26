@@ -233,6 +233,35 @@ test("window shortcuts respect presentation capabilities and leave detached Cmd+
   assert.deepEqual(h.disposed, []);
 });
 
+test("sidebar resize completion restores the current terminal without changing selection or layout", () => {
+  const h = harness();
+  const available = {
+    mode: "sidebar" as const,
+    canDetach: true,
+    canMaximize: true,
+    transitioning: false,
+  };
+  h.controller.setPresentation(available);
+  h.controller.performAction("toggleSidebarSize");
+  assert.deepEqual(h.sent, [{ type: "toggleSidebarSize" }]);
+
+  // A selection change while the host resizes must win over the old tab.
+  h.actions.activateWorkspace("two");
+  h.actions.activateTab("c", "c-2");
+  const before = structuredClone(h.state());
+  h.focused.length = 0;
+  h.controller.performAction("focusTerminal");
+  assert.deepEqual(h.focused, ["c-2"]);
+  assert.deepEqual(h.state(), before);
+  assert.deepEqual(h.disposed, []);
+
+  // A resize reply must not interfere with an in-progress window handoff.
+  h.controller.setPresentation({ ...available, transitioning: true });
+  h.focused.length = 0;
+  h.controller.performAction("focusTerminal");
+  assert.deepEqual(h.focused, []);
+});
+
 test("new tabs and nested splits inherit only the source pane and retain other selections", async () => {
   const h = harness();
   h.actions.createTab("b");

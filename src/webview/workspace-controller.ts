@@ -196,6 +196,12 @@ export class WorkspaceController {
   }
 
   performAction(action: string, index?: number, options?: NewTerminalOptions) {
+    if (action === "focusTerminal") {
+      const pane = this.focusedPane();
+      if (!this.presentation.transitioning && pane?.activeTabId)
+        this.terminals.focus(pane.activeTabId);
+      return;
+    }
     if (action === "toggleWindow") {
       if (this.canToggleWindow()) this.bridge.send({ type: "toggleWindow" });
       return;

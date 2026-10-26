@@ -266,6 +266,32 @@ export function activate(context: vscode.ExtensionContext) {
     await waitForReady(sidebarView);
   }
 
+  async function toggleSidebarSize() {
+    if (
+      windowPanel ||
+      !canMaximize ||
+      switchingWindow ||
+      stopping ||
+      !viewReady ||
+      !sidebarView ||
+      view !== sidebarView
+    )
+      return;
+    const surface = sidebarView;
+    const clientId = viewClientId;
+    const current = () =>
+      view === surface &&
+      viewClientId === clientId &&
+      viewReady &&
+      !windowPanel &&
+      !switchingWindow &&
+      !stopping;
+    await vscode.commands.executeCommand(TOGGLE_SIDEBAR_SIZE);
+    if (!current()) return;
+    await vscode.commands.executeCommand("gaogrid.view.focus");
+    if (current()) post({ type: "action", action: "focusTerminal" });
+  }
+
   async function changePresentation(mode: WindowPresentation["mode"]) {
     if (switchingWindow || stopping) return;
     switchingWindow = true;
@@ -498,8 +524,7 @@ export function activate(context: vscode.ExtensionContext) {
           await changePresentation(windowPanel ? "sidebar" : "window");
           break;
         case "toggleSidebarSize":
-          if (!windowPanel && canMaximize)
-            await vscode.commands.executeCommand(TOGGLE_SIDEBAR_SIZE);
+          await toggleSidebarSize();
           break;
         case "start":
           await manager.start(
@@ -760,10 +785,10 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("gaogrid.toggleWindow", () =>
       changePresentation(windowPanel ? "sidebar" : "window"),
     ),
-    vscode.commands.registerCommand("gaogrid.toggleSidebarSize", async () => {
-      if (!windowPanel && canMaximize && !switchingWindow)
-        await vscode.commands.executeCommand(TOGGLE_SIDEBAR_SIZE);
-    }),
+    vscode.commands.registerCommand(
+      "gaogrid.toggleSidebarSize",
+      toggleSidebarSize,
+    ),
     vscode.commands.registerCommand("gaogrid.newWorkspace", () =>
       post({ type: "action", action: "newWorkspace" }),
     ),
