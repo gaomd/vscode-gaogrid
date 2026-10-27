@@ -400,10 +400,10 @@ test("split shortcuts leave unshifted Option/Alt navigation, extra modifiers, an
   assert.equal(resolveShortcut({ ...base, keyCode: 229 }), undefined);
 });
 
-test("Alt+Shift+Space distributes panes without intercepting other modifiers or IME", () => {
+test("Alt+Shift+M distributes panes without intercepting Space, other modifiers, or IME", () => {
   const event = {
-    key: " ",
-    code: "Space",
+    key: "M",
+    code: "KeyM",
     altKey: true,
     shiftKey: true,
     metaKey: false,
@@ -411,10 +411,16 @@ test("Alt+Shift+Space distributes panes without intercepting other modifiers or 
   };
   assert.equal(resolveShortcut(event)?.action, "distributePanes");
   assert.equal(
-    resolveShortcut({ ...event, key: "\u00a0" })?.action,
+    resolveShortcut({ ...event, key: "Â" })?.action,
+    "distributePanes",
+  );
+  assert.equal(
+    resolveShortcut({ ...event, code: undefined })?.action,
     "distributePanes",
   );
   for (const override of [
+    { key: " ", code: "Space" },
+    { key: "\u00a0", code: "Space" },
     { shiftKey: false },
     { ctrlKey: true },
     { metaKey: true },

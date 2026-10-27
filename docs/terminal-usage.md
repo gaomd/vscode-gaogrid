@@ -14,27 +14,27 @@ GaoGrid supports up to nine workspaces and up to nine terminal tabs per pane.
 Double-click a tab or workspace to close it. Keyboard shortcuts apply while
 GaoGrid has focus:
 
-| Shortcut        | Action                                           |
-| --------------- | ------------------------------------------------ |
-| `⌘N`            | New workspace                                    |
-| `⌘T`            | New tab in the focused pane                      |
-| `⌥⇧↑` / `⌥⇧T`   | New pane above the focused pane                  |
-| `⌥⇧↓` / `⌥⇧D`   | New pane below the focused pane                  |
-| `⌥⇧←` / `⌥⇧L`   | New pane to the left of the focused pane         |
-| `⌥⇧→` / `⌥⇧R`   | New pane to the right of the focused pane        |
-| `⌃⌥↑` / `⌃⌥↓`   | Focus the pane above / below                     |
-| `⌃⌥←` / `⌃⌥→`   | Focus the pane to the left / right               |
-| `⌥⇧Space`       | Distribute the focused pane's split group evenly |
-| `⌥⇧Space` twice | Distribute all panes in the workspace evenly     |
-| `⌘W`            | Close the focused pane's active tab              |
-| `⌘D`            | Detach window / attach to sidebar                |
-| `⌘X`            | Maximize / restore the secondary sidebar         |
-| `Ctrl+1–9`      | Switch workspace                                 |
-| `⌘1–9`          | Switch tab in the focused pane                   |
-| `⌘⇧[`           | Previous tab in the focused pane                 |
-| `⌘⇧]`           | Next tab in the focused pane                     |
-| `⌘+` / `⌘-`     | Adjust the focused terminal's font size          |
-| `⌘0`            | Restore the configured terminal font size        |
+| Shortcut      | Action                                           |
+| ------------- | ------------------------------------------------ |
+| `⌘N`          | New workspace                                    |
+| `⌘T`          | New tab in the focused pane                      |
+| `⌥⇧↑` / `⌥⇧T` | New pane above the focused pane                  |
+| `⌥⇧↓` / `⌥⇧D` | New pane below the focused pane                  |
+| `⌥⇧←` / `⌥⇧L` | New pane to the left of the focused pane         |
+| `⌥⇧→` / `⌥⇧R` | New pane to the right of the focused pane        |
+| `⌃⌥↑` / `⌃⌥↓` | Focus the pane above / below                     |
+| `⌃⌥←` / `⌃⌥→` | Focus the pane to the left / right               |
+| `⌥⇧M`         | Distribute the focused pane's split group evenly |
+| `⌥⇧M` twice   | Distribute all panes in the workspace evenly     |
+| `⌘W`          | Close the focused pane's active tab              |
+| `⌘D`          | Detach window / attach to sidebar                |
+| `⌘X`          | Maximize / restore the secondary sidebar         |
+| `Ctrl+1–9`    | Switch workspace                                 |
+| `⌘1–9`        | Switch tab in the focused pane                   |
+| `⌘⇧[`         | Previous tab in the focused pane                 |
+| `⌘⇧]`         | Next tab in the focused pane                     |
+| `⌘+` / `⌘-`   | Adjust the focused terminal's font size          |
+| `⌘0`          | Restore the configured terminal font size        |
 
 Tab cycling wraps at the first and last tabs. Inside a terminal, `Shift+Enter`
 sends a distinct key sequence so Codex can insert a newline without submitting
@@ -62,9 +62,9 @@ split further.
 
 ## Distributing Panes
 
-Press `Alt+Shift+Space` (`⌥⇧Space` on macOS) to balance the nearest split
-containing the focused pane. Press Space twice within 400 ms while holding
-Alt+Shift to balance every split group in the active workspace. Holding Space
+Press `Alt+Shift+M` (`⌥⇧M` on macOS) to balance the nearest split
+containing the focused pane. Press M twice within 400 ms while holding
+Alt+Shift to balance every split group in the active workspace. Holding M
 does not count as a double press. The commands are also available in the Command
 Palette.
 

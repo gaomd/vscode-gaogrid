@@ -156,7 +156,7 @@
     "keybindings": [
       {
         "command": "gaogrid.distributePanes",
-        "key": "alt+shift+space",
+        "key": "alt+shift+m",
         "when": "gaogridFocus"
       },
       {
