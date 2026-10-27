@@ -8,13 +8,9 @@ Sidebar.
 
 ## Installation
 
-Install GaoGrid from the
-[VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=gaomd.gaogrid),
-or run:
-
-```sh
-code --install-extension gaomd.gaogrid
-```
+Available on the
+[VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=gaomd.gaogrid)
+and [Open VSX](https://open-vsx.org/extension/gaomd/gaogrid).
 
 ## Usage
 
