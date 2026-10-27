@@ -103,13 +103,15 @@ Saved layouts are validated on recovery, with a fallback to the original v1 stor
 ### UI Rules
 
 - Use `createControl` for tab labels, workspace labels, and icon actions.
-- Controls are 20px high, with 12px workspace/tab labels and 14px icons. Pane headers
+- Controls are 20px high, with 12px workspace/tab labels. Pane headers
   grow naturally from their controls and 4px bottom padding; the rail grows from
   its labels and inline padding. Do not calculate header heights or rail widths.
+- Terminal tabs size to their contents with 6px horizontal padding on each side.
 - Icons use SVG assets from `@vscode/codicons` in shared 14px boxes. `ui/icons.ts`
   centers each asset's visible bounds in its original viewBox without changing
-  scale, then caches the template. Buttons use flex alignment; do not center
-  icons with per-button pixel offsets or font baseline adjustments.
+  scale, then caches the template. Protected-session shields inside terminal tabs
+  use 12px boxes. Buttons use flex alignment; do not center icons with per-button
+  pixel offsets or font baseline adjustments.
 - The application shell owns the outer right and bottom 4px gutters. HTML
   generation must not add inline root resets that override the stylesheet.
 - Top spacing belongs to the workspace stage and split structure. The stage
@@ -117,10 +119,14 @@ Saved layouts are validated on recovery, with a fallback to the original v1 stor
 - Header controls align with the terminal surface's outer left and right edges.
   Terminal text keeps its own 4px inner padding.
 - Chrome colors use the editor's `--vscode-*` theme variables in both VS Code and
-  compatible editors such as Cursor. Controls have a subtle theme-relative
-  resting background; hover, selection, menus, and focus use native theme tokens.
-  High-contrast themes also supply control borders. Workspace and pane boundaries
-  have no permanent separators.
+  compatible editors such as Cursor. Buttons have transparent resting backgrounds;
+  inactive tabs keep a subtle theme-relative fill. Hover uses the toolbar hover
+  color with a theme-relative fallback. Selected tabs retain their selection
+  colors on hover and are the only controls with an inset border. Their border
+  uses `contrastActiveBorder`, falling back to `focusBorder`; Cursor Dark High
+  Contrast uses `contrastBorder` because its focus border is transparent. Menus
+  and focus use native theme tokens. Workspace and pane boundaries have no
+  permanent separators.
 - A focused terminal gets an inset 1px border without changing its size.
 - Terminal surfaces, toolbar popovers, and context menus all use the shared
   `--gg-terminal-radius` token.

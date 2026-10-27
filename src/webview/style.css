@@ -23,6 +23,10 @@
     var(--gg-text)
   );
   --gg-focus-border: var(--vscode-focusBorder);
+  --gg-active-border: var(
+    --vscode-contrastActiveBorder,
+    var(--gg-focus-border)
+  );
   --gg-control-size: 20px;
   --gg-label-min-width: 28px;
   --gg-label-font-size: 12px;
@@ -67,6 +71,11 @@ body.vscode-high-contrast-light {
   color-scheme: light;
 }
 
+/* Cursor Dark High Contrast makes focusBorder transparent. */
+body[data-vscode-theme-id="Cursor Dark High Contrast"] {
+  --gg-active-border: var(--vscode-contrastBorder, var(--gg-text));
+}
+
 button {
   font: inherit;
 }
@@ -84,9 +93,8 @@ button {
   padding: 0 var(--gg-space);
   border: 0;
   border-radius: var(--gg-label-radius);
-  background: var(--gg-label-surface);
+  background: transparent;
   color: var(--gg-text);
-  box-shadow: inset 0 0 0 1px var(--vscode-contrastBorder, transparent);
   line-height: 1;
   text-decoration: none;
   white-space: nowrap;
@@ -116,6 +124,10 @@ button {
   pointer-events: none;
 }
 
+.control[role="tab"] {
+  background: var(--gg-label-surface);
+}
+
 .control:not(:disabled):hover {
   background: var(--gg-hover-surface);
 }
@@ -124,11 +136,7 @@ button {
 .control[aria-selected="true"]:not(:disabled):hover {
   background: var(--gg-active-surface);
   color: var(--gg-text-active);
-  box-shadow: inset 0 0 0 1px
-    var(
-      --vscode-contrastActiveBorder,
-      var(--vscode-contrastBorder, transparent)
-    );
+  box-shadow: inset 0 0 0 1px var(--gg-active-border);
 }
 
 .control:focus-visible {
@@ -287,7 +295,12 @@ button {
 }
 
 .terminal-tab {
-  padding-inline: 2px;
+  min-inline-size: 0;
+  padding-inline: 6px;
+}
+
+.terminal-tab [data-icon="shield"] {
+  --gg-icon-size: 12px;
 }
 
 .drag-insertion-marker {
