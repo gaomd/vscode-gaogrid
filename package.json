@@ -2,7 +2,7 @@
   "name": "gaogrid",
   "displayName": "GaoGrid",
   "description": "A terminal multiplexer and workspace manager for VS Code and compatible editors, inspired by cmux and herdr.",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "publisher": "gaomd",
   "author": "Mengdi Gao",
   "icon": "media/icon.png",

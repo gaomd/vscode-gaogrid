@@ -11,7 +11,9 @@ scripts/**
 docs/**
 esbuild.js
 tsconfig.json
+dist/**
+!dist/extension.js
+!dist/webview.js
+!dist/webview.css
 **/*.map
 **/*.pdb
-dist/tests/**
-dist/review-pty.cjs

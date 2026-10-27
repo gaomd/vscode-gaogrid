@@ -2,6 +2,42 @@
 
 All notable changes to GaoGrid are documented here.
 
+## [0.4.0] - 2026-10-27
+
+### Features
+
+- Split panes in all four directions with `Alt+Shift+Arrow` or
+  `Alt+Shift+T/D/L/R`, focusing the new terminal in the inherited working
+  directory. Limit new splits to four nesting levels while preserving existing
+  deeper layouts.
+- Navigate between panes with `Alt+Ctrl+Arrow`, without wrapping at workspace
+  edges.
+- Distribute the focused split group evenly with `Alt+Shift+Space`, or press
+  Space twice to balance every split group in the workspace.
+
+### Fixes
+
+- Follow the editor's color scheme throughout the interface, including dark and
+  high-contrast themes. Register a Primary Sidebar fallback for Cursor and older
+  compatible editors.
+- Keep terminal focus after maximizing or restoring the sidebar. When a pane
+  closes, return focus to its surviving sibling branch; make left/right
+  navigation prefer the adjacent pane sharing the longest edge.
+- Use Unicode 11 widths in frontend and history terminals so Emoji such as
+  `🐍` and `📦` occupy two columns and Starship right prompts leave input at the
+  correct position.
+- Preserve the input method's full-width punctuation on macOS and align CJK
+  punctuation with the terminal grid and composition preview.
+- Restore hidden and recreated terminals from parsed snapshots, preserving live
+  alternate screens, input modes, mouse encoding, and cursor visibility without
+  replaying stale queries or truncated escape sequences.
+- Apply output backpressure through PTY pause/resume and frontend parsing
+  acknowledgments to keep sustained output bounded and ordered.
+- Forward binary terminal input without UTF-8 expansion, preserving legacy mouse
+  reports.
+- Preserve complete Explorer file selections when dropping into terminals and
+  leave ordinary text and internal tab/workspace drags on their normal paths.
+
 ## [0.3.0] - 2026-10-26
 
 ### Features
