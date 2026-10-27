@@ -2,6 +2,14 @@
 
 All notable changes to GaoGrid are documented here.
 
+## [0.5.1] - 2026-10-28
+
+### Fixes
+
+- Make active workspace and terminal tabs easier to identify.
+- Reduce visual clutter in toolbar buttons and inactive tabs.
+- Improve terminal tab spacing and the appearance of protection indicators.
+
 ## [0.5.0] - 2026-10-27
 
 ### Dependencies
