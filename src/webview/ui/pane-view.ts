@@ -144,11 +144,7 @@ export class PaneView {
         event.stopPropagation();
         const side =
           (this.surface.dataset.dropSide as
-            | "left"
-            | "right"
-            | "top"
-            | "bottom"
-            | undefined) ||
+            "left" | "right" | "top" | "bottom" | undefined) ||
           dropSideAt(
             this.surface.getBoundingClientRect(),
             event.clientX,

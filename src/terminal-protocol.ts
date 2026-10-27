@@ -36,10 +36,7 @@ export type LifecycleRequest =
     };
 
 export type LifecycleResult =
-  | string
-  | boolean
-  | TerminalMetadata
-  | "openProtectedTab";
+  string | boolean | TerminalMetadata | "openProtectedTab";
 
 export interface TerminalMetadata {
   cwd: string;

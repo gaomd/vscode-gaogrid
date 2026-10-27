@@ -2,6 +2,23 @@
 
 All notable changes to GaoGrid are documented here.
 
+## [0.5.0] - 2026-10-27
+
+### Dependencies
+
+- Upgrade xterm.js 6 and matching addons, Codicons, TypeScript 7, esbuild, and
+  Prettier, using compatible version ranges. See the
+  [dependency history and compatibility audit](docs/xterm-6-audit.md).
+
+### Fixes
+
+- Change pane distribution to `Alt+Shift+M` to avoid macOS input-source
+  shortcut conflicts. Press M twice while holding Alt+Shift to balance every
+  split group in the workspace.
+- Restore focus to the active terminal when the Secondary Sidebar is shown
+  again after being hidden.
+- Place the protected-session shield after the terminal tab label.
+
 ## [0.4.0] - 2026-10-27
 
 ### Features

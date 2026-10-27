@@ -27,8 +27,8 @@ They also check conservative residual cleanup.
 
 ## Packaging And Releases
 
-Packaging and publishing require Node.js 22 or later. The commands use a pinned
-version of `@vscode/vsce` through `npx`; npm downloads the tool on first use.
+Packaging and publishing require Node.js 22 or later. The commands use a compatible
+4.x version of `@vscode/vsce` through `npx`; npm downloads the tool on first use.
 
 ```sh
 npm run package

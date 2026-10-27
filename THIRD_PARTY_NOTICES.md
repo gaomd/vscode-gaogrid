@@ -3,7 +3,7 @@
 GaoGrid's original source code is MIT licensed. The components below retain their
 own copyright notices and licenses.
 
-## @vscode/codicons (0.0.36)
+## @vscode/codicons (0.0.45)
 
 Copyright Microsoft Corporation. Licensed under
 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
@@ -14,7 +14,7 @@ GaoGrid uses Codicons SVG assets for controls. Their paths and scale are preserv
 while their viewBox is centered on the visible artwork. The extension icon adapts
 the terminal icon to a filled silhouette with transparent prompt shapes.
 
-## @xterm/xterm (5.5.0), @xterm/headless (5.5.0), @xterm/addon-serialize (0.13.0)
+## @xterm/xterm (6.0.0), @xterm/headless (6.0.0), @xterm/addon-serialize (0.14.0)
 
 License: MIT.
 
@@ -42,7 +42,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-## @xterm/addon-fit (0.10.0)
+## @xterm/addon-fit (0.11.0), @xterm/addon-unicode11 (0.9.0)
 
 License: MIT.
 
@@ -68,7 +68,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-## @xterm/addon-image (0.8.0)
+## @xterm/addon-image (0.9.0)
 
 License: MIT.
 
@@ -94,7 +94,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-## @xterm/addon-web-links (0.11.0)
+## @xterm/addon-web-links (0.12.0)
 
 License: MIT.
 
@@ -120,7 +120,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-## @xterm/addon-webgl (0.18.0)
+## @xterm/addon-webgl (0.19.0)
 
 License: MIT.
 
