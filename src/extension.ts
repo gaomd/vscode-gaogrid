@@ -753,6 +753,20 @@ export function activate(context: vscode.ExtensionContext) {
     resolveWebviewView(webviewView) {
       sidebarView = webviewView;
       bindSurface(webviewView);
+      webviewView.onDidChangeVisibility(() => {
+        if (view !== webviewView || windowPanel || switchingWindow || stopping)
+          return;
+        if (!webviewView.visible) {
+          void vscode.commands.executeCommand(
+            "setContext",
+            "gaogridFocus",
+            false,
+          );
+          return;
+        }
+        webviewView.show(false);
+        if (viewReady) post({ type: "action", action: "focusTerminal" });
+      });
       if (windowPanel) webviewView.webview.html = detachedHtml();
       else loadSurface(webviewView);
     },
