@@ -12,11 +12,16 @@ Available on the
 [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=gaomd.gaogrid)
 and [Open VSX](https://open-vsx.org/extension/gaomd/gaogrid).
 
+Search for and install **GaoGrid** from the Extensions view in VS Code or Cursor.
+
 ## Usage
 
 Open GaoGrid in the Secondary Sidebar to create workspaces, split panes, and open
 terminal tabs. Start with the [terminal usage guide](docs/terminal-usage.md) or
 explore [tab movement and drag and drop](docs/tab-movement.md).
+
+In Cursor, if GaoGrid appears in the Primary Side Bar, open the Command Palette and
+run **View: Move View** → **GaoGrid** → **New Secondary Side Bar Entry**.
 
 ## Session Recovery
 
