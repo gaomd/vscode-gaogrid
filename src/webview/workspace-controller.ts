@@ -12,6 +12,7 @@ import {
   distributePanes,
   findNode,
   findPane,
+  findPaneAfterRemoval,
   findParentSplit,
   getPanes,
   getTabs,
@@ -567,14 +568,10 @@ export class WorkspaceController {
         pane.activeTabId =
           pane.tabs[Math.min(index, pane.tabs.length - 1)]?.id || null;
       if (!pane.tabs.length) {
-        const paneIndex = getPanes(workspace.root).findIndex(
-          (item) => item.id === paneId,
-        );
+        const target = findPaneAfterRemoval(workspace.root, paneId);
         workspace.root = removePane(workspace.root, paneId);
-        const remaining = getPanes(workspace.root);
         if (workspace.focusedPaneId === paneId)
-          workspace.focusedPaneId =
-            remaining[Math.min(paneIndex, remaining.length - 1)]?.id;
+          workspace.focusedPaneId = target?.id;
       }
       if (!workspace.root && this.state.workspaces.length > 1) {
         const workspaceIndex = this.state.workspaces.indexOf(workspace);
@@ -876,15 +873,12 @@ export class WorkspaceController {
     pane.activeTabId = null;
     if (preservePane) return;
 
-    const paneIndex = getPanes(workspace.root).findIndex(
-      (item) => item.id === pane.id,
-    );
+    const target = findPaneAfterRemoval(workspace.root, pane.id);
     workspace.root = removePane(workspace.root, pane.id);
     const remaining = getPanes(workspace.root);
     if (remaining.length) {
       if (workspace.focusedPaneId === pane.id)
-        workspace.focusedPaneId =
-          remaining[Math.min(paneIndex, remaining.length - 1)]?.id;
+        workspace.focusedPaneId = target?.id;
       return;
     }
 

@@ -808,7 +808,7 @@ test("workspace close is atomic, aggregates all terminals, and focuses the adjac
   }
 });
 
-test("pane closure uses a single aggregate request and keeps existing empty-pane semantics", async () => {
+test("pane closure uses a single aggregate request and removes an empty workspace when another remains", async () => {
   const h = harness();
   h.controller.performAction("closePane");
   await settled();
@@ -822,7 +822,101 @@ test("pane closure uses a single aggregate request and keeps existing empty-pane
   assert.equal(h.state().workspaces[0].root?.id, "a");
   h.controller.performAction("closePane");
   await settled();
+  assert.deepEqual(
+    h.state().workspaces.map((workspace) => workspace.id),
+    ["two"],
+  );
+  assert.equal(h.state().activeWorkspaceId, "two");
+  assert.equal(h.state().workspaces[0].root?.id, "c");
+  assert.equal(h.focused.at(-1), "c-1");
+});
+
+test("closing the sole workspace's last pane leaves that workspace empty", async () => {
+  const h = harness(layoutFixture(pane("only", "/only"), "only"));
+  h.controller.performAction("closePane");
+  await settled();
+  assert.equal(h.state().workspaces.length, 1);
+  assert.equal(h.state().activeWorkspaceId, "one");
   assert.equal(h.state().workspaces[0].root, null);
+  assert.equal(h.state().workspaces[0].focusedPaneId, undefined);
+});
+
+function collapseFocusFixture(focusedPaneId = "b") {
+  return layoutFixture(
+    {
+      type: "split",
+      id: "outer",
+      direction: "horizontal",
+      ratio: 0.5,
+      first: {
+        type: "split",
+        id: "parent",
+        direction: "horizontal",
+        ratio: 0.5,
+        first: pane("a", "/a"),
+        second: pane("b", "/b"),
+      },
+      second: pane("unrelated", "/unrelated"),
+    },
+    focusedPaneId,
+  );
+}
+
+for (const ending of ["close tab", "close pane", "shell exit"] as const) {
+  test(`${ending} returns focus to the collapsed parent split's surviving pane`, async () => {
+    const h = harness(collapseFocusFixture());
+    if (ending === "close pane") h.controller.performAction("closePane");
+    else if (ending === "close tab") {
+      h.actions.closeTab("b", "b-1");
+      h.actions.closeTab("b", "b-2");
+    } else {
+      h.controller.sessionEnded("b-s1");
+      h.controller.sessionEnded("b-s2");
+    }
+    await settled();
+    const workspace = h.state().workspaces[0];
+    assert.equal(workspace.focusedPaneId, "a");
+    assert.equal(h.focused.at(-1), "a-1");
+    assert.deepEqual(
+      getPanes(workspace.root).map((item) => item.id),
+      ["a", "unrelated"],
+    );
+    assert.deepEqual(h.disposed, ["b-1", "b-2"]);
+  });
+}
+
+test("closing an unfocused pane leaves the focused pane unchanged", async () => {
+  const h = harness(collapseFocusFixture("unrelated"));
+  h.actions.closeTab("b", "b-1");
+  h.actions.closeTab("b", "b-2");
+  await settled();
+  assert.equal(h.state().workspaces[0].focusedPaneId, "unrelated");
+  assert.equal(h.focused.at(-1), "unrelated-1");
+});
+
+test("moving a focused pane's last tab to another workspace restores sibling focus in its source", async () => {
+  const initial = collapseFocusFixture();
+  const b = getPanes(initial.workspaces[0].root).find(
+    (item) => item.id === "b",
+  )!;
+  b.tabs.splice(1);
+  initial.workspaces.push({
+    id: "destination",
+    name: "^2",
+    focusedPaneId: "dest",
+    root: pane("dest", "/dest"),
+  });
+  const h = harness(initial);
+  h.actions.moveTabToWorkspace("b-1", "destination");
+  await settled();
+  assert.equal(h.state().workspaces[0].focusedPaneId, "a");
+  assert.deepEqual(
+    getPanes(h.state().workspaces[0].root).map((item) => item.id),
+    ["a", "unrelated"],
+  );
+  assert.equal(h.state().activeWorkspaceId, "destination");
+  assert.equal(h.state().workspaces[1].focusedPaneId, "dest");
+  assert.equal(h.focused.at(-1), "b-1");
 });
 
 test("rapid new-tab requests in an empty workspace share a pane and respect the tab limit", async () => {

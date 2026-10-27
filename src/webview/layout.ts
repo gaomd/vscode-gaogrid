@@ -50,7 +50,9 @@ export function findAdjacentPane(
   const horizontal = direction === "left" || direction === "right";
   const start = horizontal ? "top" : "left";
   const end = horizontal ? "bottom" : "right";
-  let best: { pane: PaneNode; distance: number; offset: number } | undefined;
+  let best:
+    | { pane: PaneNode; distance: number; overlap: number; offset: number }
+    | undefined;
   const epsilon = 1e-9;
   for (const candidate of panes) {
     if (candidate === source) continue;
@@ -74,9 +76,15 @@ export function findAdjacentPane(
     if (
       !best ||
       distance < best.distance - epsilon ||
-      (Math.abs(distance - best.distance) <= epsilon && offset < best.offset)
+      (Math.abs(distance - best.distance) <= epsilon &&
+        // A tall pane can share its left/right edge with several stacked
+        // neighbors. Prefer the longest shared edge before center alignment,
+        // so a shallow middle pane does not steal the larger neighbor's focus.
+        ((horizontal && overlap > best.overlap + epsilon) ||
+          ((!horizontal || Math.abs(overlap - best.overlap) <= epsilon) &&
+            offset < best.offset)))
     )
-      best = { pane: candidate.pane, distance, offset };
+      best = { pane: candidate.pane, distance, overlap, offset };
   }
   return best?.pane;
 }
@@ -109,6 +117,25 @@ export function findParentSplit(
   return (
     findParentSplit(node.first, paneId) || findParentSplit(node.second, paneId)
   );
+}
+
+/** Focus stays inside the split that collapses when its child pane disappears. */
+export function findPaneAfterRemoval(
+  root: LayoutNode | null,
+  paneId: string,
+): PaneNode | undefined {
+  const parent = findParentSplit(root, paneId);
+  if (!parent) return;
+  const first = parent.first.id === paneId;
+  const direction =
+    parent.direction === "horizontal"
+      ? first
+        ? "right"
+        : "left"
+      : first
+        ? "down"
+        : "up";
+  return findAdjacentPane(parent, paneId, direction);
 }
 
 /** Same-axis splits form one row/column; perpendicular groups share one slot. */
@@ -208,11 +235,10 @@ export function removeTabFromState(
         pane.lastKnownCwd;
     }
     if (!pane.tabs.length) {
+      const target = findPaneAfterRemoval(workspace.root, pane.id);
       workspace.root = removePane(workspace.root, pane.id);
-      const remaining = getPanes(workspace.root);
       if (workspace.focusedPaneId === pane.id)
-        workspace.focusedPaneId =
-          remaining[Math.min(panes.indexOf(pane), remaining.length - 1)]?.id;
+        workspace.focusedPaneId = target?.id;
     }
     if (!workspace.root && state.workspaces.length > 1) {
       const index = state.workspaces.indexOf(workspace);

@@ -81,6 +81,11 @@ layout across nested splits. At an outer edge, focus stays in place; it does not
 wrap to the opposite side or move to another workspace. These four focus commands
 are also available in the Command Palette and VS Code's Keyboard Shortcuts editor.
 
+When several panes share the nearest left or right boundary, focus goes to the
+one sharing the longest edge with the current pane. Equal shared edges use the
+closest center. This keeps a large pane from jumping to a small middle pane
+beside it.
+
 ## Dedicated Window
 
 Use the detach button at the bottom of the workspace rail, press `⌘D`, or choose
@@ -114,6 +119,12 @@ Idle shells close immediately. Closing a terminal with a running task asks for
 confirmation; cancelling keeps its process, output, layout, and selection intact.
 Closing a workspace checks all its terminals and shows one combined confirmation.
 **GaoGrid: Close Terminal Pane** uses the same check for every tab in a pane.
+
+Closing the last tab removes its pane and collapses its parent split. Focus
+returns to a pane in the surviving side of that split. Closing a pane that is
+not focused preserves the current focus. If the workspace becomes empty and
+another workspace remains, GaoGrid closes the empty workspace; the last
+workspace stays available.
 
 On macOS and Linux, closing queries a fresh process snapshot to protect programs
 and background jobs still attached to the terminal, such as `npm run dev &`.
