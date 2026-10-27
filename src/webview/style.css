@@ -405,6 +405,8 @@ button {
 }
 
 .xterm .xterm-viewport {
+  /* xterm 6 themes the row grid; unused viewport space shows the surface. */
+  background-color: transparent;
   scrollbar-width: none;
 }
 
