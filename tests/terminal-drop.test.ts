@@ -73,6 +73,33 @@ test("Explorer's full internal URI list precedes the truncated public list", () 
   ]);
 });
 
+test("ResourceURLs retains the full selection ahead of editor-only drag data", () => {
+  const h = harness();
+  const resources = ["file:///tmp/folder/", "file:///tmp/a%20file.txt"];
+  h.dispatch("drop", {
+    ResourceURLs: JSON.stringify(resources),
+    "application/vnd.code.uri-list": "file:///tmp/a%20file.txt",
+    CodeEditors: JSON.stringify([
+      { resource: { scheme: "file", path: "/tmp/a file.txt" } },
+    ]),
+  });
+  assert.deepEqual(h.drops, [{ resources, names: [] }]);
+});
+
+test("CodeFiles retains the full file selection when URI-list formats are unavailable", () => {
+  const h = harness();
+  const resources = ["/tmp/folder", "/tmp/a file.txt"];
+  h.dispatch("drop", {
+    ResourceURLs: "[]",
+    "application/vnd.code.uri-list": "",
+    CodeFiles: JSON.stringify(resources),
+    CodeEditors: JSON.stringify([
+      { resource: { scheme: "file", path: "/tmp/a file.txt" } },
+    ]),
+  });
+  assert.deepEqual(h.drops, [{ resources, names: [] }]);
+});
+
 test("empty or unavailable preferred formats fall back to other resource formats", () => {
   const h = harness();
   h.dispatch("drop", {
@@ -134,11 +161,25 @@ test("plain text and GaoGrid tab reorders are not file drops", () => {
   const h = harness();
   for (const payload of [
     { "text/plain": "a command" },
-    { "application/x-gaogrid-tab": "tab-id" },
+    { "application/x-gaogrid-tab": "tab-id", "text/plain": "terminal" },
+    { "application/x-gaogrid-workspace": "workspace-id", "text/plain": "^1" },
   ]) {
-    const { event, stopped } = h.dispatch("drop", payload);
-    assert.equal(event.defaultPrevented, false);
-    assert.equal(stopped, false);
+    for (const type of ["dragenter", "dragover", "drop"]) {
+      const { event, stopped, transfer } = h.dispatch(type, payload);
+      assert.equal(event.defaultPrevented, false);
+      assert.equal(stopped, false);
+      assert.equal(transfer.dropEffect, "none");
+    }
   }
   assert.deepEqual(h.drops, []);
+});
+
+test("file drags may use plain-text paths only after a file format identifies the drag", () => {
+  const h = harness();
+  h.dispatch("drop", { Files: "", "text/plain": "/tmp/a file.txt" }, [
+    { name: "a file.txt" },
+  ]);
+  assert.deepEqual(h.drops, [
+    { resources: ["/tmp/a file.txt"], names: ["a file.txt"] },
+  ]);
 });

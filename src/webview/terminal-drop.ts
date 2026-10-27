@@ -1,12 +1,11 @@
 const RESOURCE_TYPES = [
   // Prefer VS Code's full Explorer selection before compatibility formats.
   "resourceurls",
-  "codeeditors",
-  "codefiles",
   "application/vnd.code.uri-list",
   "application/vnd.code.resources",
+  "codefiles",
+  "codeeditors",
   "text/uri-list",
-  "text/plain",
 ];
 
 /** Read path-bearing drag formats without opening or uploading file contents. */
@@ -63,7 +62,9 @@ export function installTerminalDrop(
       accept(event);
       const transfer = event.dataTransfer!;
       const resources: unknown[] = [];
-      for (const format of RESOURCE_TYPES) {
+      // Plain text is only a compatibility fallback after the drag has been
+      // identified as files/resources; ordinary text must stay on xterm's path.
+      for (const format of [...RESOURCE_TYPES, "text/plain"]) {
         const type = [...transfer.types].find(
           (type) => type.toLowerCase() === format,
         );
