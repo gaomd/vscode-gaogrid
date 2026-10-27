@@ -8,6 +8,10 @@ resume applications.
 
 GaoGrid restores workspaces, split layouts, pane sizes, tab identities, cwd, and
 shell metadata. Recreating only the webview reuses live PTYs and buffered output.
+Tabs restore from parsed terminal snapshots before receiving live output, so
+hidden-tab restoration never starts in the middle of an escape sequence or an
+Emoji. Live application modes are retained during webview recreation; saved
+history for a fresh shell excludes those modes and terminal queries.
 
 After VS Code or the Extension Host restarts, a direct terminal starts a fresh
 shell in its saved cwd. GaoGrid restores its saved rendered output first and

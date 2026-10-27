@@ -1,5 +1,16 @@
 import type { TerminalBackendType } from "./model";
 
+export interface TerminalOutputPacket {
+  type: "data" | "replay";
+  sessionId: string;
+  streamId: string;
+  // Cumulative string units, including one unit for an empty snapshot.
+  sequence: number;
+  data: string;
+  cols?: number;
+  rows?: number;
+}
+
 export interface NewTerminalOptions {
   cwd?: string;
   profile?: string;

@@ -3,6 +3,7 @@ import * as path from "path";
 import * as os from "os";
 import { randomUUID } from "crypto";
 import { TerminalOutputStore } from "./terminal-output-store";
+import { TerminalOutputStream } from "./terminal-output-stream";
 import { PtyManager } from "./pty-manager";
 import { PersistedState } from "./model";
 import { getPanes, getTabs, removeTabFromState } from "./webview/layout";
@@ -59,7 +60,6 @@ export function activate(context: vscode.ExtensionContext) {
     | undefined;
   let viewReady = false;
   let viewGeneration = 0;
-  const replayed = new Set<string>();
   const endedSessions = new Set<string>();
   let state = restoreState(
     context.workspaceState.get(STATE_KEY) ??
@@ -91,17 +91,25 @@ export function activate(context: vscode.ExtensionContext) {
         }
       }
       if (event.type === "sessionEnded") {
+        outputStreams.unsubscribe(event.sessionId);
         endedSessions.add(event.sessionId);
         if (removeTabFromState(state, event.sessionId)) void persist();
         if (viewReady) void view?.webview.postMessage(message);
         return;
       }
+      if (event.type === "data") {
+        outputStreams.write(
+          event.sessionId,
+          (message as { data: string }).data,
+        );
+        return;
+      }
+      if (event.type === "reset") outputStreams.unsubscribe(event.sessionId);
       if (event.type === "notice")
         void vscode.window.showInformationMessage(
           `GaoGrid: ${(message as { message: string }).message}`,
         );
-      if (viewReady || (event.type === "data" && replayed.has(event.sessionId)))
-        void view?.webview.postMessage(message);
+      if (viewReady) void view?.webview.postMessage(message);
     },
     {
       defaultDirectories,
@@ -125,6 +133,10 @@ export function activate(context: vscode.ExtensionContext) {
           ? "powershell.exe"
           : process.env.SHELL || "/bin/bash"),
     },
+  );
+  const outputStreams = new TerminalOutputStream(
+    manager,
+    (message) => view?.webview.postMessage(message) || false,
   );
   const lifecycle = new TerminalLifecycle(
     manager,
@@ -192,7 +204,7 @@ export function activate(context: vscode.ExtensionContext) {
     viewReady = false;
     viewClientId = undefined;
     viewGeneration++;
-    replayed.clear();
+    outputStreams.clear();
     nativeDropCandidates.clear();
     void vscode.commands.executeCommand("setContext", "gaogridFocus", false);
     surface.webview.html = getHtml(surface.webview, context);
@@ -389,6 +401,7 @@ export function activate(context: vscode.ExtensionContext) {
           waiter.reject(new Error("GaoGrid view was closed."));
         }
       if (view === webviewView) {
+        outputStreams.clear();
         view = undefined;
         viewReady = false;
         void vscode.commands.executeCommand(
@@ -423,7 +436,7 @@ export function activate(context: vscode.ExtensionContext) {
         case "ready":
           const generation = ++viewGeneration;
           viewReady = false;
-          replayed.clear();
+          outputStreams.clear();
           await Promise.all(
             state.workspaces
               .flatMap((workspace) => getTabs(workspace.root))
@@ -445,40 +458,6 @@ export function activate(context: vscode.ExtensionContext) {
             type: "settings",
             settings: terminalSettings(),
           });
-          await Promise.all(
-            state.workspaces
-              .flatMap((workspace) => getTabs(workspace.root))
-              .map(async (tab) => {
-                const snapshot = await manager.replay(
-                  tab.sessionId,
-                  (snapshot) => {
-                    if (view !== webviewView || generation !== viewGeneration)
-                      return;
-                    webviewView.webview.postMessage({
-                      type: "replay",
-                      sessionId: tab.sessionId,
-                      ...snapshot,
-                    });
-                    replayed.add(tab.sessionId);
-                  },
-                );
-                if (
-                  !snapshot &&
-                  view === webviewView &&
-                  generation === viewGeneration
-                ) {
-                  const output = manager.output(tab.sessionId);
-                  if (output)
-                    webviewView.webview.postMessage({
-                      type: "replay",
-                      sessionId: tab.sessionId,
-                      data: output,
-                    });
-                  replayed.add(tab.sessionId);
-                }
-              }),
-          );
-          if (view !== webviewView || generation !== viewGeneration) break;
           viewReady = true;
           updatePresentation();
           for (const waiter of readyWaiters)
@@ -506,6 +485,23 @@ export function activate(context: vscode.ExtensionContext) {
               })
               .catch((error) => log.appendLine(String(error)));
           }
+          break;
+        case "subscribeOutput":
+          if (
+            typeof message.sessionId === "string" &&
+            typeof message.streamId === "string"
+          )
+            await outputStreams.subscribe(message.sessionId, message.streamId);
+          break;
+        case "unsubscribeOutput":
+          outputStreams.unsubscribe(message.sessionId, message.streamId);
+          break;
+        case "outputParsed":
+          outputStreams.acknowledge(
+            message.sessionId,
+            message.streamId,
+            message.sequence,
+          );
           break;
         case "persist":
           acceptState(message.state);
@@ -648,7 +644,11 @@ export function activate(context: vscode.ExtensionContext) {
           void vscode.window.showErrorMessage(`GaoGrid: ${message.message}`);
           break;
         case "input":
-          manager.input(message.sessionId, message.data);
+          manager.input(
+            message.sessionId,
+            message.data,
+            message.binary === true,
+          );
           break;
         case "nativeDropCandidate": {
           if (typeof message.sessionId === "string") {
@@ -856,6 +856,7 @@ export function activate(context: vscode.ExtensionContext) {
   );
   shutdown = async () => {
     stopping = true;
+    outputStreams.clear();
     preparation?.reject(new Error("GaoGrid is shutting down."));
     for (const waiter of readyWaiters) {
       readyWaiters.delete(waiter);

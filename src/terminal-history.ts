@@ -16,6 +16,7 @@ export class TerminalHistory {
   private readonly serializer = new SerializeAddon();
   private disposed = false;
   private readonly mouseEncodingModes = new Set<number>();
+  private cursorHidden = false;
   constructor(cols: number, rows: number) {
     this.terminal = new Terminal({
       cols,
@@ -31,19 +32,22 @@ export class TerminalHistory {
       this.terminal.parser.registerCsiHandler(
         { prefix: "?", final },
         (params) => {
-          for (const value of params)
-            if (
+          for (const value of params) {
+            if (value === 25) this.cursorHidden = final === "l";
+            else if (
               typeof value === "number" &&
               [1005, 1006, 1015, 1016].includes(value)
             ) {
               if (final === "h") this.mouseEncodingModes.add(value);
               else this.mouseEncodingModes.delete(value);
             }
+          }
           return false;
         },
       );
     this.terminal.parser.registerEscHandler({ final: "c" }, () => {
       this.mouseEncodingModes.clear();
+      this.cursorHidden = false;
       return false;
     });
   }
@@ -93,8 +97,11 @@ export class TerminalHistory {
       );
       data += "\x1b[0m\r\n" + lines.join("\r\n").trimEnd();
     }
-    if (live)
+    if (live) {
       for (const mode of this.mouseEncodingModes) data += `\x1b[?${mode}h`;
+      // SerializeAddon omits cursor visibility and mouse encoding modes.
+      if (this.cursorHidden) data += "\x1b[?25l";
+    }
     if (data.length > MAX_SNAPSHOT_LENGTH)
       throw new Error("Terminal output snapshot exceeds the storage limit.");
     return {

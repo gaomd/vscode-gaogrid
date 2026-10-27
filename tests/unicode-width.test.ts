@@ -4,7 +4,7 @@ import { Terminal as HeadlessTerminal } from "@xterm/headless";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { TerminalHistory } from "../src/terminal-history";
 import type { Terminal } from "@xterm/xterm";
-import type { TerminalTab } from "../src/model";
+import { frontend } from "./fixtures/terminal-frontend";
 
 const rightPrompt = "via 🐍 v3.15.0 is 📦 v0.1.0";
 
@@ -14,66 +14,6 @@ function prompt(cols: number) {
   const width = Array.from(rightPrompt).length + 2;
   const padding = cols - 2 - width - 1;
   return `% \x1b[${padding}C${rightPrompt}\x1b[${padding + width}D`;
-}
-
-function frontend(t: TestContext, cols = 80, rows = 6) {
-  // Mount the real browser xterm without opening a renderer. Layout and font
-  // callbacks stay deferred; parsing, addons, replay, and reset are real.
-  const globals = {
-    self: globalThis,
-    document: {
-      body: {},
-      fonts: { ready: new Promise(() => {}), addEventListener() {} },
-    },
-    getComputedStyle: () => ({ getPropertyValue: () => "" }),
-    ResizeObserver: class {
-      observe() {}
-      unobserve() {}
-    },
-    MutationObserver: class {
-      observe() {}
-    },
-    requestAnimationFrame: () => 1,
-  };
-  const previous = new Map(
-    Object.keys(globals).map((key) => [
-      key,
-      Object.getOwnPropertyDescriptor(globalThis, key),
-    ]),
-  );
-  for (const [key, value] of Object.entries(globals))
-    Object.defineProperty(globalThis, key, { configurable: true, value });
-  t.after(() => {
-    for (const [key, descriptor] of previous) {
-      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
-      else Reflect.deleteProperty(globalThis, key);
-    }
-  });
-  const { TerminalFrontend } =
-    require("../src/webview/terminal-frontend") as typeof import("../src/webview/terminal-frontend");
-  const view = new TerminalFrontend(() => {});
-  const tab: TerminalTab = {
-    id: "emoji-tab",
-    sessionId: "emoji-session",
-    title: "shell",
-    cwd: "/",
-    backend: "direct",
-  };
-  const host = new EventTarget() as unknown as HTMLElement;
-  view.replay(tab.sessionId, "", cols, rows);
-  const mount = () => view.mount(tab, host);
-  mount();
-  const terminal = (
-    view as unknown as { surfaces: Map<string, { terminal: Terminal }> }
-  ).surfaces.get(tab.id)!.terminal;
-  t.after(() => view.disposeTab(tab));
-  return {
-    terminal,
-    view,
-    mount,
-    tab,
-    write: (data: string) => view.write(tab.sessionId, data),
-  };
 }
 
 function history(t: TestContext, cols = 80, rows = 6) {
@@ -170,6 +110,215 @@ test("live history replay, reset, and tab remount retain Emoji widths and the pr
       .translateToString(true)
       .startsWith("% x"),
   );
+});
+
+test("frontend forwards binary mouse reports separately from UTF-8 input", (t) => {
+  const f = frontend(t);
+  const legacyMouse = "\x1b[M\x20\x80\xff";
+  // Exercise xterm's binary event source; production uses only onBinary.
+  (f.terminal as any)._core.coreService.triggerBinaryEvent(legacyMouse);
+  f.terminal.input("中文\x1b[<0;3;4M");
+  const input = f.sent.filter((message) => message.type === "input");
+  assert.deepEqual(input, [
+    {
+      type: "input",
+      sessionId: f.tab.sessionId,
+      data: legacyMouse,
+      binary: true,
+    },
+    { type: "input", sessionId: f.tab.sessionId, data: "中文\x1b[<0;3;4M" },
+  ]);
+});
+
+test("frontend ACKs only parsed output and ignores packets from a replaced stream", async (t) => {
+  const f = frontend(t);
+  const streamId = f.sent.find(
+    (message) => message.type === "subscribeOutput",
+  ).streamId;
+  const packet = {
+    sessionId: f.tab.sessionId,
+    streamId,
+    sequence: 2,
+    type: "replay" as const,
+    data: "% ",
+    cols: 80,
+    rows: 6,
+  };
+  f.view.receiveOutput(packet);
+  assert.equal(
+    f.sent.some((message) => message.type === "outputParsed"),
+    false,
+  );
+  await parsed(f.terminal);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(
+    f.sent.find((message) => message.type === "outputParsed").sequence,
+    2,
+  );
+  f.view.receiveOutput({ ...packet, type: "data", data: "🐍", sequence: 4 });
+  await parsed(f.terminal);
+  assert.equal(f.terminal.buffer.active.cursorX, 4);
+  f.view.reset(f.tab.sessionId);
+  const newId = f.sent
+    .filter((message) => message.type === "subscribeOutput")
+    .at(-1).streamId;
+  assert.notEqual(newId, streamId);
+  f.view.receiveOutput({ ...packet, type: "data", data: "STALE", sequence: 9 });
+  f.view.receiveOutput({
+    ...packet,
+    streamId: newId,
+    data: "CURRENT",
+    sequence: 7,
+  });
+  await parsed(f.terminal);
+  assert.equal(
+    f.terminal.buffer.active.getLine(0)!.translateToString(true),
+    "CURRENT",
+  );
+});
+
+test("a reset between parsing and sending an ACK cannot starve the new stream", async (t) => {
+  const f = frontend(t);
+  const queued: (() => void)[] = [];
+  const original = globalThis.queueMicrotask;
+  globalThis.queueMicrotask = (callback) => queued.push(callback);
+  t.after(() => {
+    globalThis.queueMicrotask = original;
+  });
+  const packet = (streamId: string, data: string) => ({
+    type: "replay" as const,
+    sessionId: f.tab.sessionId,
+    streamId,
+    sequence: data.length,
+    data,
+    cols: 80,
+    rows: 6,
+  });
+  const oldId = f.sent.at(-1).streamId;
+  f.view.receiveOutput(packet(oldId, "OLD"));
+  await parsed(f.terminal);
+  assert.equal(queued.length, 1);
+  f.view.reset(f.tab.sessionId);
+  const newId = f.sent.at(-1).streamId;
+  f.view.receiveOutput(packet(newId, "NEW"));
+  await parsed(f.terminal);
+  assert.equal(queued.length, 2);
+  for (const send of queued) send();
+  assert.deepEqual(
+    f.sent.filter((message) => message.type === "outputParsed"),
+    [
+      {
+        type: "outputParsed",
+        sessionId: f.tab.sessionId,
+        streamId: newId,
+        sequence: 3,
+      },
+    ],
+  );
+});
+
+test("hidden live replay preserves modes, resizes, and never replies to stale terminal queries", async (t) => {
+  const h = history(t, 35, 8);
+  h.write(
+    "NORMAL 🐍\r\n\x1b[?1049h\x1b[HLIVE 中文📦\x1b[?25l\x1b[?2004h\x1b[?1000h\x1b[?1006h\x1b[6n\x1b[c",
+  );
+  const snapshot = await h.output.snapshot(undefined, true);
+  const f = frontend(t);
+  const streamId = f.sent.at(-1).streamId;
+  f.view.receiveOutput({
+    type: "replay",
+    sessionId: f.tab.sessionId,
+    streamId,
+    sequence: snapshot.data.length,
+    ...snapshot,
+  });
+  await parsed(f.terminal);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(
+    f.terminal.element,
+    undefined,
+    "hidden terminals parse without opening a renderer",
+  );
+  assert.equal(f.terminal.cols, 35);
+  assert.equal(f.terminal.rows, 8);
+  assert.equal(f.terminal.buffer.active.type, "alternate");
+  assert.equal(f.terminal.modes.bracketedPasteMode, true);
+  assert.equal(f.terminal.modes.mouseTrackingMode, "vt200");
+  assert.ok(snapshot.data.includes("\x1b[?25l"));
+  assert.ok(snapshot.data.includes("\x1b[?1006h"));
+  assert.equal(f.sent.filter((message) => message.type === "input").length, 0);
+  assert.equal(
+    f.sent.filter((message) => message.type === "outputParsed").length,
+    1,
+  );
+  f.terminal.resize(20, 10);
+  f.mount();
+  assert.equal(f.terminal.cols, 20);
+  const exit = "\x1b[?1049lX";
+  f.view.receiveOutput({
+    type: "data",
+    sessionId: f.tab.sessionId,
+    streamId,
+    sequence: snapshot.data.length + exit.length,
+    data: exit,
+  });
+  await parsed(f.terminal);
+  assert.equal(f.terminal.buffer.active.type, "normal");
+  assert.match(
+    f.terminal.buffer.active.getLine(0)!.translateToString(true),
+    /NORMAL 🐍/,
+  );
+});
+
+for (const [name, create] of [
+  ["frontend", frontend],
+  ["headless history", history],
+] as const) {
+  test(`${name} retains complex Unicode sequences without claiming grapheme-width parity`, async (t) => {
+    const h = create(t);
+    const text = "中文 e\u0301 🇨🇳 👍🏽 👩‍💻";
+    h.write(text);
+    await parsed(h.terminal);
+    const line = h.terminal.buffer.active.getLine(0)!;
+    assert.equal(line.translateToString(true), text);
+    assert.equal(line.getCell(0)!.getWidth(), 2);
+    assert.equal(line.getCell(5)!.getChars(), "e\u0301");
+    assert.equal(h.terminal.buffer.active.cursorX, 19);
+  });
+}
+
+test("unmounted terminals discard raw tails and request a fresh snapshot when mounted", async (t) => {
+  const f = frontend(t);
+  const tab = {
+    ...f.tab,
+    id: "background-tab",
+    sessionId: "background-session",
+  };
+  f.view.write(tab.sessionId, "\x1b[31m" + "x".repeat(2_000_001) + "🐍");
+  assert.equal((f.view as any).pendingSnapshots.has(tab.sessionId), false);
+  f.view.mount(tab, new EventTarget() as unknown as HTMLElement);
+  t.after(() => f.view.disposeTab(tab));
+  const subscription = f.sent.find(
+    (message) => message.sessionId === tab.sessionId,
+  );
+  assert.equal(subscription.type, "subscribeOutput");
+  const data = "\x1b[31mLATEST 🐍📦\x1b[0m\r\n% ";
+  f.view.receiveOutput({
+    ...subscription,
+    type: "replay",
+    sequence: data.length,
+    data,
+    cols: 80,
+    rows: 6,
+  });
+  const terminal = (f.view as any).surfaces.get(tab.id).terminal as Terminal;
+  await parsed(terminal);
+  assert.equal(
+    terminal.buffer.active.getLine(0)!.translateToString(true),
+    "LATEST 🐍📦",
+  );
+  assert.equal(terminal.buffer.active.cursorX, 2);
+  assert.equal(terminal.buffer.active.getLine(0)!.getCell(7)!.getWidth(), 2);
 });
 
 test("Unicode 6 disk snapshots keep saved output and leave a fresh prompt usable under Unicode 11", async (t) => {

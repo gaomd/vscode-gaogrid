@@ -74,14 +74,14 @@ window.addEventListener("message", ({ data: message }) => {
       terminals.reset(message.sessionId);
       break;
     case "data":
-      terminals.write(message.sessionId, message.data);
-      break;
     case "replay":
-      terminals.replay(
+      terminals.receiveOutput(message);
+      break;
+    case "streamError":
+      terminals.outputError(
         message.sessionId,
-        message.data,
-        message.cols,
-        message.rows,
+        message.streamId,
+        message.message,
       );
       break;
     case "paste":

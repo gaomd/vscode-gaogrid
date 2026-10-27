@@ -12,6 +12,7 @@ import {
 import { hasActiveTask } from "./task-detector";
 import { OscCwdParser } from "./osc-cwd-parser";
 import { TerminalHistory, type OutputSnapshot } from "./terminal-history";
+import { TerminalOutputFlow } from "./terminal-output-flow";
 import type { TerminalOutputStore } from "./terminal-output-store";
 import { TmuxBackend, type TmuxPane } from "./tmux-backend";
 import type { TerminalMetadata, BackendOptions } from "./terminal-protocol";
@@ -23,9 +24,10 @@ type Session = {
   shell: string;
   exited: boolean;
   inputRevision: number;
-  deferredInput?: string[];
+  deferredInput?: { data: string; binary: boolean }[];
   closing?: Promise<void>;
   history: TerminalHistory;
+  flow: TerminalOutputFlow;
   checkpointTimer?: ReturnType<typeof setTimeout>;
   checkpoint?: Promise<void>;
 };
@@ -216,9 +218,8 @@ export class PtyManager {
       this.resize(sessionId, currentSize.cols, currentSize.rows);
       metadata.connectionState = "connected";
       this.emitMetadata(sessionId);
-      if (metadata.backend === "tmux") this.emit({ type: "reset", sessionId });
-      if (session.output)
-        this.emit({ type: "data", sessionId, data: session.output });
+      if (prefix || metadata.backend === "tmux")
+        this.emit({ type: "reset", sessionId });
       this.scheduleCheckpoint(sessionId, session);
     } catch (error) {
       metadata.connectionState = "disconnected";
@@ -262,8 +263,13 @@ export class PtyManager {
       exited: false,
       inputRevision: 0,
       history: new TerminalHistory(size.cols, size.rows),
+      flow: new TerminalOutputFlow(
+        () => proc.pause(),
+        () => proc.resume(),
+      ),
     };
-    session.history.write(output);
+    session.flow.queued(output.length);
+    session.history.write(output, () => session.flow.parsed(output.length));
     const current = () => this.sessions.get(sessionId) === session;
     const cwdParser = new OscCwdParser((uri) => {
       session.cwd.report(uri);
@@ -276,10 +282,15 @@ export class PtyManager {
       cwdParser.write(data);
       session.output = (session.output + data).slice(-2_000_000);
       const publish = current();
+      session.flow.queued(data.length);
       session.history.write(data, () => {
-        if (publish && current()) {
-          this.emit({ type: "data", sessionId, data });
-          this.scheduleCheckpoint(sessionId, session);
+        try {
+          if (publish && current()) {
+            this.emit({ type: "data", sessionId, data });
+            this.scheduleCheckpoint(sessionId, session);
+          }
+        } finally {
+          session.flow.parsed(data.length);
         }
       });
     });
@@ -343,6 +354,7 @@ export class PtyManager {
     await session.checkpoint;
     if (!current() || session.closing || this.stopping) return;
     session.history.dispose();
+    session.flow.dispose();
     this.sessions.delete(sessionId);
     this.backends.delete(sessionId);
     this.recoveryOutput.delete(sessionId);
@@ -387,6 +399,7 @@ export class PtyManager {
     } catch (error) {
       if (!session.exited) session.process.kill();
       session.history.dispose();
+      session.flow.dispose();
       throw error;
     }
   }
@@ -444,14 +457,27 @@ export class PtyManager {
       // A new tmux client enters the alternate screen. Keep its initial shell
       // redraw in the existing main buffer so Direct-session scrollback remains
       // visible above it. Later application alternate-screen changes pass through.
-      candidate.output = candidate.output.replace("\x1b[?1049h", "");
-      candidate.history.dispose();
-      candidate.history = new TerminalHistory(
-        previousScreen.cols,
-        previousScreen.rows,
-      );
-      candidate.history.write(previousScreen.data);
-      candidate.history.write(candidate.output);
+      // Pause reads before the snapshot barrier so no candidate output can
+      // land in the old history after it has been captured and replaced.
+      const release = candidate.flow.hold();
+      try {
+        const candidateScreen = await candidate.history.snapshot(
+          undefined,
+          true,
+        );
+        const data =
+          previousScreen.data + candidateScreen.data.replace("\x1b[?1049h", "");
+        candidate.history.dispose();
+        candidate.history = new TerminalHistory(
+          previousScreen.cols,
+          previousScreen.rows,
+        );
+        const flow = candidate.flow;
+        flow.queued(data.length);
+        candidate.history.write(data, () => flow.parsed(data.length));
+      } finally {
+        release();
+      }
       this.sessions.set(sessionId, candidate);
       this.backends.set(sessionId, {
         cwd,
@@ -465,14 +491,15 @@ export class PtyManager {
       switched = true;
       const currentSize = this.sizes.get(sessionId) || size;
       this.resize(sessionId, currentSize.cols, currentSize.rows);
-      const data = candidate.output;
-      candidate.output = (original.output + data).slice(-2_000_000);
+      candidate.output = (original.output + candidate.output).slice(-2_000_000);
       this.emitMetadata(sessionId);
-      if (data) this.emit({ type: "data", sessionId, data });
+      this.emit({ type: "reset", sessionId });
+      original.flow.setViewPending(0);
       await this.terminate(original, await inspectProcesses());
       if (original.checkpointTimer) clearTimeout(original.checkpointTimer);
       await original.checkpoint;
       original.history.dispose();
+      original.flow.dispose();
       await this.options.outputStore?.remove(sessionId);
       return this.metadata(sessionId);
     } finally {
@@ -481,18 +508,25 @@ export class PtyManager {
       if (!switched) {
         if (candidate && !candidate.exited) candidate.process.kill();
         candidate?.history.dispose();
+        candidate?.flow.dispose();
         if (id) await this.tmux.destroy(id);
       }
-      for (const data of input || []) this.input(sessionId, data);
+      for (const { data, binary } of input || [])
+        this.input(sessionId, data, binary);
     }
   }
 
-  input(sessionId: string, data: string) {
+  input(sessionId: string, data: string, binary = false) {
     const session = this.sessions.get(sessionId);
     if (!session || session.exited || session.closing) return;
     session.inputRevision++;
-    if (session.deferredInput) session.deferredInput.push(data);
-    else session.process.write(data);
+    if (session.deferredInput) session.deferredInput.push({ data, binary });
+    else session.process.write(binary ? Buffer.from(data, "latin1") : data);
+  }
+
+  setOutputPending(sessionId: string, length: number) {
+    if (!Number.isSafeInteger(length) || length < 0) return;
+    this.sessions.get(sessionId)?.flow.setViewPending(length);
   }
   quotePaths(sessionId: string, paths: string[]) {
     const shell = this.metadata(sessionId)?.profile;
@@ -507,8 +541,21 @@ export class PtyManager {
     sessionId: string,
     consume?: (snapshot: OutputSnapshot) => void,
   ): Promise<OutputSnapshot | undefined> {
+    await this.starting.get(sessionId);
+    await this.promoting.get(sessionId);
     const session = this.sessions.get(sessionId);
-    if (!session) return;
+    if (!session) {
+      // Startup errors are complete messages. Never render the diagnostic raw
+      // output tail, which can begin in the middle of an escape or surrogate.
+      const snapshot: OutputSnapshot = {
+        version: 1,
+        ...(this.sizes.get(sessionId) || { cols: 80, rows: 24 }),
+        data: this.recoveryOutput.get(sessionId) || "",
+      };
+      if (!this.backends.has(sessionId)) return;
+      consume?.(snapshot);
+      return snapshot;
+    }
     return session.history.snapshot(consume, true);
   }
 
@@ -680,10 +727,12 @@ export class PtyManager {
         await this.cleanup(known);
       }
       if (session) {
+        session.flow.setViewPending(0);
         if (session.checkpointTimer) clearTimeout(session.checkpointTimer);
         await this.terminate(session, processes);
         await session.checkpoint;
         session.history.dispose();
+        session.flow.dispose();
       }
       await this.options.outputStore?.remove(sessionId);
       this.sessions.delete(sessionId);
@@ -768,6 +817,7 @@ export class PtyManager {
     const processes = await inspectProcesses();
     await Promise.all(
       [...this.sessions].map(async ([id, session]) => {
+        session.flow.setViewPending(0);
         if (session.checkpointTimer) clearTimeout(session.checkpointTimer);
         await session.checkpoint;
         if (this.backends.get(id)?.backend === "direct") {
@@ -775,6 +825,7 @@ export class PtyManager {
           await this.saveOutput(id, session);
         } else if (!session.exited) session.process.kill();
         session.history.dispose();
+        session.flow.dispose();
       }),
     );
     this.sessions.clear();

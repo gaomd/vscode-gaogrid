@@ -74,7 +74,7 @@ The webview has three layers:
 - `workspace-controller.ts` owns workspace mutations and requests persistence.
 - `ui/` renders reusable controls, the workspace rail, panes, splits, and menus.
 
-`terminal-frontend.ts` owns xterm instances, output buffers, fitting, and input
+`terminal-frontend.ts` owns xterm instances, output subscriptions, fitting, and input
 focus. It does not read or persist workspace layout. `layout.ts` contains the
 recursive tree helpers. `terminal-theme.ts` translates VS Code terminal settings.
 
@@ -241,6 +241,13 @@ are not discarded. Their old wrapping or already overwritten text cannot be
 reconstructed, but the recovery notice and fresh shell start on new lines so
 the old cursor position does not carry into the new prompt.
 
+Unicode 11 is a code-point width provider, not a grapheme-cluster implementation.
+Chinese characters, combining accents, and the observed single-code-point Emoji
+have regression coverage. Skin-tone and ZWJ sequences such as `👍🏽` and `👩‍💻`
+retain their text but currently occupy four cells, which can differ from a
+shell's or tmux's width calculation. Do not patch individual symbols to conceal
+that limitation.
+
 `TerminalOutputStore` saves bounded snapshots atomically with same-user file
 permissions under VS Code storage. `PtyManager` checkpoints direct tabs while
 output arrives and flushes on shutdown. Explicit close deletes their snapshots.
@@ -251,3 +258,31 @@ callbacks form a replay barrier: output before the barrier is included once in
 replay; later output follows as live data. Saved dimensions are applied before
 replay and fitting resumes after the serialized output has been parsed. This
 avoids truncating a raw escape stream or losing output during the handshake.
+
+### Output Flow Control
+
+Mounted terminals subscribe through `TerminalOutputStream`. A subscription starts
+with a parsed live snapshot and then receives ordered output. Unmounted tabs
+keep only the host's parsed history; mounting requests a fresh snapshot rather
+than retaining an arbitrary raw string tail. Hidden mounted terminals still
+parse and acknowledge output without opening a renderer.
+
+Each subscription has a generation ID and cumulative string-unit sequence.
+The frontend acknowledges output only from xterm's `write` completion callback.
+Old generations, duplicate ACKs, and future ACKs cannot release current credit.
+Recreating or moving the webview clears subscriptions and their pending credit,
+without restarting the PTY. Failed delivery releases credit as well.
+
+`TerminalOutputFlow` counts pending headless parsing plus unacknowledged frontend
+output. It uses node-pty's public `pause()` at 256 Ki string units and `resume()`
+at 64 Ki. These are watermarks, not exact memory caps: a PTY read may cross the
+threshold, and a bounded snapshot can be larger. This follows the
+[xterm flow-control guide](https://xtermjs.org/docs/guides/flowcontrol/).
+The real-PTY regression test withholds ACKs to verify output stops, then checks
+more than 12 MB of resumed output for exact ordering and completeness.
+
+Text input remains UTF-8. xterm's public `onBinary` event travels through the same
+input channel with a binary flag; the host writes a Latin-1 `Buffer` to preserve
+legacy mouse-report bytes such as `0x80` and `0xff`. Modern SGR reports remain on
+the normal text path. See the
+[xterm binary-input API](https://xtermjs.org/docs/api/terminal/classes/terminal/#onbinary).

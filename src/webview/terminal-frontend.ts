@@ -5,6 +5,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import type { TerminalTab } from "../model";
+import type { TerminalOutputPacket } from "../terminal-protocol";
 import { readTerminalOptions } from "./terminal-theme";
 import { TerminalScrollbar } from "./terminal-scrollbar";
 import { installTerminalDrop } from "./terminal-drop";
@@ -21,6 +22,11 @@ interface TerminalSurface {
   webgl?: WebglAddon;
   webglFailed?: boolean;
   replaying?: boolean;
+  streamId: string;
+  awaitingReplay: boolean;
+  received: number;
+  parsed: number;
+  ackQueued?: string;
   disposeDrop(): void;
   disposeInput(): void;
 }
@@ -29,7 +35,7 @@ interface TerminalSurface {
 export class TerminalFrontend {
   private readonly surfaces = new Map<string, TerminalSurface>();
   private readonly sessionTabs = new Map<string, string>();
-  private readonly pendingOutput = new Map<string, string>();
+  private readonly pendingSnapshots = new Map<string, string>();
   private readonly pendingDimensions = new Map<
     string,
     { cols: number; rows: number }
@@ -107,6 +113,14 @@ export class TerminalFrontend {
     terminal.onData((data) =>
       this.send({ type: "input", sessionId: tab.sessionId, data }),
     );
+    terminal.onBinary((data) =>
+      this.send({
+        type: "input",
+        sessionId: tab.sessionId,
+        data,
+        binary: true,
+      }),
+    );
     terminal.onResize(({ cols, rows }) =>
       this.send({ type: "resize", sessionId: tab.sessionId, cols, rows }),
     );
@@ -116,23 +130,28 @@ export class TerminalFrontend {
       host,
       sessionId: tab.sessionId,
       opened: false,
+      streamId: "",
+      awaitingReplay: true,
+      received: 0,
+      parsed: 0,
       disposeDrop: this.installDrop(host, terminal, tab.sessionId),
       disposeInput: installTerminalInput(terminal, host),
     });
     this.sessionTabs.set(tab.sessionId, tab.id);
     this.resizeObserver.observe(host);
     this.pendingDimensions.delete(tab.sessionId);
-    const output = this.pendingOutput.get(tab.sessionId);
-    if (output) {
+    const output = this.pendingSnapshots.get(tab.sessionId);
+    if (output !== undefined) {
       const surface = this.surfaces.get(tab.id)!;
       surface.replaying = true;
       terminal.write(output, () => {
         surface.replaying = false;
         this.scheduleFit();
       });
-      this.pendingOutput.delete(tab.sessionId);
+      this.pendingSnapshots.delete(tab.sessionId);
       this.pendingDimensions.delete(tab.sessionId);
     }
+    this.subscribe(this.surfaces.get(tab.id)!);
     this.scheduleFit();
   }
 
@@ -141,39 +160,120 @@ export class TerminalFrontend {
     const tabId = this.sessionTabs.get(sessionId);
     const surface = tabId ? this.surfaces.get(tabId) : undefined;
     if (surface) surface.terminal.write(data);
-    else
-      this.pendingOutput.set(
-        sessionId,
-        ((this.pendingOutput.get(sessionId) || "") + data).slice(-2_000_000),
-      );
+    else this.pendingSnapshots.delete(sessionId);
   }
 
-  replay(sessionId: string, data: string, cols?: number, rows?: number) {
+  receiveOutput(packet: TerminalOutputPacket) {
+    const tabId = this.sessionTabs.get(packet.sessionId);
+    const surface = tabId ? this.surfaces.get(tabId) : undefined;
+    if (!surface || surface.streamId !== packet.streamId) return;
+    if (packet.sequence <= surface.received) return;
+    if (
+      (packet.type === "data" && surface.awaitingReplay) ||
+      packet.sequence !== surface.received + Math.max(1, packet.data.length)
+    ) {
+      this.subscribe(surface);
+      return;
+    }
+    surface.received = packet.sequence;
+    const streamId = surface.streamId;
+    const parsed = () => {
+      if (
+        surface.streamId !== streamId ||
+        this.surfaces.get(tabId!) !== surface
+      )
+        return;
+      surface.parsed = packet.sequence;
+      if (surface.ackQueued === streamId) return;
+      surface.ackQueued = streamId;
+      queueMicrotask(() => {
+        if (surface.ackQueued === streamId) surface.ackQueued = undefined;
+        if (
+          surface.streamId === streamId &&
+          this.surfaces.get(tabId!) === surface
+        )
+          this.send({
+            type: "outputParsed",
+            sessionId: packet.sessionId,
+            streamId,
+            sequence: surface.parsed,
+          });
+      });
+    };
+    if (packet.type === "replay") {
+      surface.awaitingReplay = false;
+      this.replay(
+        packet.sessionId,
+        packet.data,
+        packet.cols,
+        packet.rows,
+        parsed,
+      );
+    } else surface.terminal.write(packet.data, parsed);
+  }
+
+  outputError(sessionId: string, streamId: string, message: string) {
+    const tabId = this.sessionTabs.get(sessionId);
+    const surface = tabId ? this.surfaces.get(tabId) : undefined;
+    if (!surface || surface.streamId !== streamId) return;
+    surface.replaying = false;
+    surface.awaitingReplay = false;
+    surface.terminal.write(
+      `\r\n[GaoGrid] Could not restore terminal output: ${message}\r\nReload GaoGrid to retry.\r\n`,
+    );
+    this.scheduleFit();
+  }
+
+  private subscribe(surface: TerminalSurface) {
+    surface.streamId = crypto.randomUUID();
+    surface.awaitingReplay = true;
+    surface.replaying = true;
+    surface.received = 0;
+    surface.parsed = 0;
+    surface.ackQueued = undefined;
+    this.send({
+      type: "subscribeOutput",
+      sessionId: surface.sessionId,
+      streamId: surface.streamId,
+    });
+  }
+
+  replay(
+    sessionId: string,
+    data: string,
+    cols?: number,
+    rows?: number,
+    parsed?: () => void,
+  ) {
     if (this.closedSessions.has(sessionId)) return;
     const tabId = this.sessionTabs.get(sessionId);
     const surface = tabId ? this.surfaces.get(tabId) : undefined;
     if (surface) {
+      const streamId = surface.streamId;
       surface.replaying = true;
       surface.terminal.write("", () => {
         surface.terminal.reset();
         if (cols && rows) surface.terminal.resize(cols, rows);
       });
       surface.terminal.write(data, () => {
-        surface.replaying = false;
-        this.scheduleFit();
+        if (surface.streamId === streamId) {
+          surface.replaying = false;
+          this.scheduleFit();
+        }
+        parsed?.();
       });
     } else {
       if (cols && rows) this.pendingDimensions.set(sessionId, { cols, rows });
-      this.pendingOutput.set(sessionId, data);
+      this.pendingSnapshots.set(sessionId, data);
     }
   }
 
   reset(sessionId: string) {
-    this.pendingOutput.delete(sessionId);
+    this.pendingSnapshots.delete(sessionId);
     this.pendingDimensions.delete(sessionId);
     const tabId = this.sessionTabs.get(sessionId);
-    const terminal = tabId ? this.surfaces.get(tabId)?.terminal : undefined;
-    terminal?.write("", () => terminal.reset());
+    const surface = tabId ? this.surfaces.get(tabId) : undefined;
+    if (surface) this.subscribe(surface);
   }
 
   paste(sessionId: string, text: string) {
@@ -219,6 +319,11 @@ export class TerminalFrontend {
     this.closedSessions.add(tab.sessionId);
     const surface = this.surfaces.get(tab.id);
     if (surface) {
+      this.send({
+        type: "unsubscribeOutput",
+        sessionId: surface.sessionId,
+        streamId: surface.streamId,
+      });
       this.resizeObserver.unobserve(surface.host);
       surface.disposeDrop();
       surface.disposeInput();
@@ -227,7 +332,7 @@ export class TerminalFrontend {
     }
     this.surfaces.delete(tab.id);
     this.sessionTabs.delete(tab.sessionId);
-    this.pendingOutput.delete(tab.sessionId);
+    this.pendingSnapshots.delete(tab.sessionId);
     this.pendingDimensions.delete(tab.sessionId);
   }
 
