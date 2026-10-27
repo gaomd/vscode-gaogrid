@@ -290,7 +290,7 @@ export class PaneView {
       button.querySelector(".control__label")!.textContent = `⌘${index + 1}`;
       const protectedTab = tab.backend === "tmux";
       const indicator = button.querySelector('[data-icon="shield"]');
-      if (protectedTab && !indicator) button.prepend(createIcon("shield"));
+      if (protectedTab && !indicator) button.append(createIcon("shield"));
       if (!protectedTab) indicator?.remove();
       button.title = protectedTab
         ? `Protected Session\n\nThis terminal is backed by tmux and can survive VS Code restarts.${tab.connectionState === "disconnected" ? "\nDisconnected. Right-click to reconnect." : ""}`
