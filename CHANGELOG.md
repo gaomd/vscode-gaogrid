@@ -2,6 +2,30 @@
 
 All notable changes to GaoGrid are documented here.
 
+## [0.6.0] - 2026-10-29
+
+### Features
+
+- Use tmux control mode for new protected terminals by default, retaining live
+  output and screen history without relying on native tmux redraws. Native
+  attach remains available as an explicit transport and automatic fallback.
+- Configure new terminals as direct or protected, choose control or attach
+  transport, and select mouse handling from the terminal settings control.
+- Restore protected terminal snapshots with their history, active screen,
+  cursor, and supported input modes after an Extension Host restart.
+
+### Fixes
+
+- Harden protected output ordering, backpressure, reconnect, and snapshot replay
+  across large and chunked terminal streams.
+- Avoid duplicate terminal query replies and preserve incomplete control
+  sequences while protected sessions attach.
+- Keep terminal settings usable in narrow editor sidebars and keep the maximize
+  action below the window controls.
+- Improve terminal selection and scrolling with application-first,
+  terminal-first, and application-exclusive mouse policies. Shift-wheel
+  scrolls history, while Option-drag selects text on macOS.
+
 ## [0.5.2] - 2026-10-28
 
 ### Fixes
