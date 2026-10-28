@@ -1,8 +1,12 @@
 # Protected Session Compatibility
 
 Protection is explicit opt-in. Direct tabs run the shell through node-pty;
-protected tabs run an isolated tmux attach client through node-pty. GaoGrid owns
+protected tabs use a tmux control-mode client with piped input and output. GaoGrid owns
 all workspaces, split trees, panes, and tabs. No tmux layout is exposed.
+
+The control-mode transport is currently a test build. The
+[validation report](protected-control-mode-validation.md) records the checks and
+remaining recovery limits before release.
 
 ## Recovery and History
 
@@ -11,6 +15,9 @@ all workspaces, split trees, panes, and tabs. No tmux layout is exposed.
 - Reloading just the webview keeps the attach client alive. After a host restart,
   tmux history and the current screen are authoritative. No disk output snapshot
   is replayed over a surviving session.
+- Live pane output reaches xterm before screen updates can coalesce it. Normal
+  terminal scrollback retains output up to its configured 10,000-line limit.
+  Applications enter and leave xterm's actual alternate screen normally.
 - Protection retains the direct terminal's existing frontend history for that
   live view. Output from before promotion is not imported into tmux and is not
   recovered after a host restart. Direct tabs now checkpoint rendered output to
@@ -35,7 +42,7 @@ Explicit close removes the snapshot; ordinary host shutdown retains it.
 
 ## Protocols
 
-The automated integration suite uses real node-pty clients and tmux 3.8 on macOS,
+The automated integration suite uses real terminal processes and tmux 3.8 on macOS,
 with bash and zsh. This is the tested environment, not a minimum version claim.
 Options unavailable in older tmux versions are optional; upgrade tmux when a
 particular passthrough or extended-key feature is required.
@@ -47,9 +54,9 @@ particular passthrough or extended-key feature is required.
 | Nerd Font glyphs       | Code point preserved in capture; rendering still requires an installed font.                                                                             |
 | Mouse interaction      | tmux’s own mouse controls are disabled. Applications can still handle mouse input. On macOS, Option-drag can force terminal text selection when needed.  |
 | Bracketed paste        | Automated payload and delimiter round-trip.                                                                                                              |
-| Shift+Enter            | GaoGrid sends CSI-u input; tmux uses the CSI-u extended-key format for applications such as Codex. Older tmux support varies.                            |
+| Shift+Enter            | GaoGrid forwards CSI-u input unchanged to the application.                                                                                               |
 | Alternate screen / vim | Real vim edit/save and resize test.                                                                                                                      |
-| OSC 7 cwd              | Existing OSC parser plus tmux pane cwd inspection; tmux may consume the OSC itself.                                                                      |
+| OSC 7 cwd              | The existing OSC parser receives pane output; tmux pane cwd inspection remains authoritative for protected sessions.                                     |
 | Clipboard / OSC 52     | Passthrough enabled where supported; the existing xterm frontend does not implement OSC 52 clipboard writes.                                             |
 | SIXEL                  | Depends on tmux build/version or application passthrough. Not verified for visual parity.                                                                |
 | iTerm inline images    | Requires application tmux passthrough; not verified for visual parity.                                                                                   |
@@ -71,6 +78,10 @@ creation/attach failure rollback, reconnect retry, missing-session fallback,
 metadata recovery, workspace cancellation/confirmation, session ownership and
 server isolation, task survival after graceful detach and force-killed host,
 process identity on reattach, explicit destruction, resizing, and protocols above.
+It also renders five batches of 80 files and requires every row exactly once
+before and after screen transitions and reconnection. Direct and protected
+output tests withhold frontend acknowledgments, then verify ordered, lossless
+resumption of more than 12 MiB of text.
 
 For release validation in a VS Code Extension Development Host:
 

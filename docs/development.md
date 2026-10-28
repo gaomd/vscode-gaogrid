@@ -209,6 +209,16 @@ capability detection, controlled server configuration, ownership verification,
 history capture, and session creation/destruction. Every protected tab owns one
 tmux session/window/pane, independently of the GaoGrid split tree.
 
+`TmuxControlProcess` connects through tmux's control protocol. It decodes raw
+`%output` records, preserving output that an ordinary attach client's screen
+redraws may coalesce. Input is encoded as literal hexadecimal bytes with
+`send-keys -H`; the control client reports size changes with `refresh-client -C`.
+Normal and alternate-screen escape sequences reach xterm directly.
+
+`TmuxOutputFilter` suppresses the direct device-attribute, status, cursor-position,
+and default-color queries that tmux already answers, preventing duplicate xterm
+replies. Queries inside tmux passthrough strings remain available to xterm.
+
 The controller serializes protection with existing creation and close mutations.
 Busy protection can create a separate tab in the original pane using the original
 tab's cwd, even if another tab becomes active while the dialog is open. Idle
@@ -216,9 +226,12 @@ promotion prepares and attaches the candidate backend before a final idle/input
 revision check. Input during that check is buffered. Failure leaves the direct
 PTY usable; successful promotion keeps the existing xterm and tab identity.
 
-On host recovery, tmux history (excluding its live screen) precedes attach's
-screen redraw. Reattachment resets the frontend before that replay; existing
-GaoGrid snapshots are not overlaid on a surviving tmux session. Webview recreation
+On host recovery, an ordered control-command batch captures pane metadata,
+the saved normal screen, pending parser bytes, and the active screen with history. `tmux-snapshot.ts`
+reconstructs those buffers and their supported input modes before subsequent
+pane output is delivered. Pending escape prefixes are prepended to the first live
+continuation. Reattachment resets the frontend before that replay;
+existing GaoGrid snapshots are not overlaid on a surviving tmux session. Webview recreation
 replays the existing client buffer without detaching it. Hidden tabs receive the
 visible terminal's pane dimensions. Normal extension shutdown detaches protected
 clients; only the explicit lifecycle close path destroys their tmux sessions.
@@ -280,12 +293,15 @@ Recreating or moving the webview clears subscriptions and their pending credit,
 without restarting the PTY. Failed delivery releases credit as well.
 
 `TerminalOutputFlow` counts pending headless parsing plus unacknowledged frontend
-output. It uses node-pty's public `pause()` at 256 Ki string units and `resume()`
-at 64 Ki. These are watermarks, not exact memory caps: a PTY read may cross the
+output. It pauses reads at 256 Ki string units and resumes at 64 Ki. Direct
+sessions pause node-pty; protected sessions pause the control client's stdout
+pipe. These are watermarks, not exact memory caps: a read may cross the
 threshold, and a bounded snapshot can be larger. This follows the
 [xterm flow-control guide](https://xtermjs.org/docs/guides/flowcontrol/).
-The real-PTY regression test withholds ACKs to verify output stops, then checks
-more than 12 MB of resumed output for exact ordering and completeness.
+Both transport tests withhold ACKs to verify application pending output stops,
+then check more than 12 MiB of resumed output for exact ordering and completeness.
+The application pending-byte bound does not establish a memory limit for tmux's
+server-side output queues while a control client is paused.
 
 Text input remains UTF-8. xterm's public `onBinary` event travels through the same
 input channel with a binary flag; the host writes a Latin-1 `Buffer` to preserve
