@@ -1,7 +1,7 @@
 import { FitAddon } from "@xterm/addon-fit";
 import type { Terminal } from "@xterm/xterm";
 
-/** Fit the character grid to the full width when the scrollbar is an overlay. */
+/** Fit the character grid while reserving a gutter for the slim scrollbar. */
 export class TerminalFitAddon extends FitAddon {
   private terminal?: Terminal;
 
@@ -26,8 +26,18 @@ export class TerminalFitAddon extends FitAddon {
     const cellWidth = canvas
       ? canvas.width / terminal.cols / window.devicePixelRatio
       : screen.getBoundingClientRect().width / terminal.cols;
+    const scrollbarWidth = Number.parseFloat(
+      getComputedStyle(host).getPropertyValue("--gg-terminal-scrollbar-width"),
+    );
     if (cellWidth > 0)
-      dimensions.cols = Math.max(2, Math.floor(host.clientWidth / cellWidth));
+      dimensions.cols = Math.max(
+        2,
+        Math.floor(
+          (host.clientWidth -
+            (Number.isFinite(scrollbarWidth) ? scrollbarWidth : 0)) /
+            cellWidth,
+        ),
+      );
     return dimensions;
   }
 }

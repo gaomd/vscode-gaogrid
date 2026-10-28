@@ -7,7 +7,6 @@ import { Unicode11Addon } from "@xterm/addon-unicode11";
 import type { TerminalTab } from "../model";
 import type { TerminalOutputPacket } from "../terminal-protocol";
 import { readTerminalOptions } from "./terminal-theme";
-import { TerminalScrollbar } from "./terminal-scrollbar";
 import { installTerminalDrop } from "./terminal-drop";
 import { installTerminalInput } from "./terminal-input";
 
@@ -18,7 +17,6 @@ interface TerminalSurface {
   sessionId: string;
   opened: boolean;
   fontSizeOverride?: number;
-  scrollbar?: TerminalScrollbar;
   webgl?: WebglAddon;
   webglFailed?: boolean;
   replaying?: boolean;
@@ -80,7 +78,6 @@ export class TerminalFrontend {
       }
       if (existing.host !== host && existing.terminal.element)
         host.append(existing.terminal.element);
-      if (existing.host !== host) existing.scrollbar?.mount(host);
       existing.host = host;
       this.resizeObserver.observe(host);
       this.scheduleFit();
@@ -327,7 +324,6 @@ export class TerminalFrontend {
       this.resizeObserver.unobserve(surface.host);
       surface.disposeDrop();
       surface.disposeInput();
-      surface.scrollbar?.dispose();
       surface.terminal.dispose();
     }
     this.surfaces.delete(tab.id);
@@ -378,10 +374,6 @@ export class TerminalFrontend {
         surface.terminal.open(surface.host);
         surface.opened = true;
         this.updateRenderer(surface);
-        surface.scrollbar = new TerminalScrollbar(
-          surface.terminal,
-          surface.host,
-        );
       }
       surface.fit.fit();
       for (const hidden of this.surfaces.values()) {
@@ -392,7 +384,6 @@ export class TerminalFrontend {
         )
           hidden.terminal.resize(surface.terminal.cols, surface.terminal.rows);
       }
-      surface.scrollbar?.sync();
       surface.terminal.refresh(0, surface.terminal.rows - 1);
     }
   }

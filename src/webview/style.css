@@ -414,60 +414,15 @@ button {
   display: none;
 }
 
-.terminal-scrollbar {
-  position: absolute;
-  inset-block: 0;
-  inset-inline-end: 0;
-  z-index: 5;
-  width: var(--gg-terminal-scrollbar-width);
-  overflow-x: hidden;
-  overflow-y: scroll;
-  opacity: 0;
-  outline: none;
-  pointer-events: none;
-  transition: opacity 140ms ease;
+/* Use xterm's themed scrollbar, slimmed to match its reserved grid gutter. */
+.xterm .xterm-scrollable-element > .scrollbar.vertical {
+  width: var(--gg-terminal-scrollbar-width) !important;
 }
 
-.terminal-scrollbar[hidden] {
-  display: none;
-}
-
-.terminal-mount:hover > .terminal-scrollbar,
-.terminal-scrollbar[data-scrolling="true"],
-.terminal-scrollbar[data-dragging="true"],
-.terminal-scrollbar:focus-visible {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-.terminal-scrollbar::-webkit-scrollbar {
-  width: var(--gg-terminal-scrollbar-width);
-}
-
-.terminal-scrollbar::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.terminal-scrollbar::-webkit-scrollbar-thumb {
+.xterm .xterm-scrollable-element > .scrollbar.vertical > .slider {
+  width: var(--gg-terminal-scrollbar-width) !important;
+  left: 0 !important;
   border-radius: 999px;
-  background: var(
-    --vscode-scrollbarSlider-background,
-    color-mix(in srgb, var(--gg-text) 20%, transparent)
-  );
-}
-
-.terminal-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: var(
-    --vscode-scrollbarSlider-hoverBackground,
-    color-mix(in srgb, var(--gg-text) 30%, transparent)
-  );
-}
-
-.terminal-scrollbar::-webkit-scrollbar-thumb:active {
-  background: var(
-    --vscode-scrollbarSlider-activeBackground,
-    color-mix(in srgb, var(--gg-text) 40%, transparent)
-  );
 }
 
 /* Top spacing belongs to the stage/split structure, not individual panes.
