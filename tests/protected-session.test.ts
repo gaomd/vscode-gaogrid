@@ -238,18 +238,57 @@ test("protected output renders every live row and preserves screen transitions",
     names.filter((name) => occurrenceCount(name, finalText) === 1).length,
     400,
   );
+  const paneAfterTransition = (
+    await exec("tmux", [
+      "-L",
+      "gaogrid",
+      "capture-pane",
+      "-p",
+      "-S",
+      "-",
+      "-t",
+      `=${id}:0.0`,
+    ])
+  ).stdout;
+  assert.equal(
+    names.filter((name) => paneAfterTransition.includes(name)).length,
+    400,
+    "tmux history keeps the rows after leaving alternate screen",
+  );
 
   const saved = manager.metadata("complete")!;
   await manager.shutdown();
   const restored = h.manager();
   h.outputChunks.delete("complete");
   await restored.start("complete", h.root, undefined, true, saved);
+  assert.equal(
+    restored.metadata("complete")?.connectionState,
+    "connected",
+    h.errors.join("\n"),
+  );
+  const reattachedPane = (
+    await exec("tmux", [
+      "-L",
+      "gaogrid",
+      "capture-pane",
+      "-p",
+      "-S",
+      "-",
+      "-t",
+      `=${id}:0.0`,
+    ])
+  ).stdout;
+  assert.equal(
+    names.filter((name) => reattachedPane.includes(name)).length,
+    400,
+    "tmux still has all rows after the new control client attaches",
+  );
   const recoveredSnapshot = await restored.replay("complete");
   assert.ok(recoveredSnapshot);
   const restoredTerminal = new Terminal({
     allowProposedApi: true,
-    cols: 120,
-    rows: 48,
+    cols: recoveredSnapshot.cols,
+    rows: recoveredSnapshot.rows,
     scrollback: 2000,
   });
   t.after(() => restoredTerminal.dispose());
@@ -257,9 +296,13 @@ test("protected output renders every live row and preserves screen transitions",
     restoredTerminal.write(recoveredSnapshot.data, resolve),
   );
   const recoveredText = renderedText(restoredTerminal);
+  const recoveredCounts = names.map((name) =>
+    occurrenceCount(name, recoveredText),
+  );
   assert.equal(
-    names.filter((name) => occurrenceCount(name, recoveredText) === 1).length,
+    recoveredCounts.filter((count) => count === 1).length,
     400,
+    `recovery render retained exactly one copy of ${recoveredCounts.filter((count) => count === 1).length}/400 rows at ${recoveredSnapshot.cols}x${recoveredSnapshot.rows}`,
   );
   assert.equal(restoredTerminal.buffer.active.type, "normal");
 });

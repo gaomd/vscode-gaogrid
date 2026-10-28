@@ -126,7 +126,10 @@ export class TmuxBackend {
     await this.run(["source-file", this.configPath]);
   }
   attachArgs(id: string) {
-    return this.args(["attach-session", "-t", this.target(id)]);
+    return this.args(["-C", "attach-session", "-t", this.target(id)]);
+  }
+  controlTarget(id: string) {
+    return `${this.target(id)}:0.0`;
   }
   async attached(id: string, pid: number) {
     const output = await this.run([

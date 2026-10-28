@@ -15,10 +15,16 @@ import { TerminalHistory, type OutputSnapshot } from "./terminal-history";
 import { TerminalOutputFlow } from "./terminal-output-flow";
 import type { TerminalOutputStore } from "./terminal-output-store";
 import { TmuxBackend, type TmuxPane } from "./tmux-backend";
+import { TmuxControlProcess } from "./tmux-control";
 import type { TerminalMetadata, BackendOptions } from "./terminal-protocol";
 
+type TerminalProcess = Pick<
+  pty.IPty,
+  "pid" | "onData" | "onExit" | "write" | "resize" | "pause" | "resume" | "kill"
+> & { readonly ready?: Promise<void> };
+
 type Session = {
-  process: pty.IPty;
+  process: TerminalProcess;
   cwd: CwdResolver;
   output: string;
   shell: string;
@@ -192,11 +198,7 @@ export class PtyManager {
               message: `Protected session is no longer available. A new shell was started in: ${workingDirectory}`,
             });
           }
-        } else
-          prefix = await this.tmux.history(
-            metadata.backendSessionId!,
-            size.rows,
-          );
+        }
         if (pane) await this.tmux.configure();
         // Persist a newly created session even if the attach client subsequently fails.
         this.emitMetadata(sessionId);
@@ -241,20 +243,20 @@ export class PtyManager {
     const environment = tmuxId
       ? this.tmux.environment
       : (this.options.environment ?? process.env);
-    const proc = pty.spawn(
-      tmuxId ? "tmux" : shell,
-      tmuxId ? this.tmux.attachArgs(tmuxId) : [],
-      {
-        name: "xterm-256color",
-        ...size,
-        cwd,
-        env: Object.fromEntries(
-          Object.entries(environment).filter(
-            (entry): entry is [string, string] => typeof entry[1] === "string",
-          ),
-        ),
-      },
+    const env = Object.fromEntries(
+      Object.entries(environment).filter(
+        (entry): entry is [string, string] => typeof entry[1] === "string",
+      ),
     );
+    const proc: TerminalProcess = tmuxId
+      ? new TmuxControlProcess({
+          args: this.tmux.attachArgs(tmuxId),
+          target: this.tmux.controlTarget(tmuxId),
+          cwd,
+          env,
+          ...size,
+        })
+      : pty.spawn(shell, [], { name: "xterm-256color", ...size, cwd, env });
     const session: Session = {
       process: proc,
       cwd: new CwdResolver(cwd),
@@ -387,8 +389,22 @@ export class PtyManager {
   }
 
   private async waitForAttach(id: string, session: Session) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const deadline = Date.now() + 2500;
+      if (session.process.ready)
+        await Promise.race([
+          session.process.ready,
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(
+              () =>
+                reject(
+                  new Error("Protected terminal initialization timed out."),
+                ),
+              2500,
+            );
+          }),
+        ]);
       while (!session.exited && Date.now() < deadline) {
         if (await this.tmux.attached(id, session.process.pid)) return;
         await new Promise((resolve) => setTimeout(resolve, 30));
@@ -401,6 +417,8 @@ export class PtyManager {
       session.history.dispose();
       session.flow.dispose();
       throw error;
+    } finally {
+      if (timer) clearTimeout(timer);
     }
   }
 
@@ -454,9 +472,7 @@ export class PtyManager {
       if (!(await this.idle(original)) || original.inputRevision !== revision)
         return;
       const previousScreen = await original.history.snapshot();
-      // A new tmux client enters the alternate screen. Keep its initial shell
-      // redraw in the existing main buffer so Direct-session scrollback remains
-      // visible above it. Later application alternate-screen changes pass through.
+      // Preserve Direct-session scrollback above the new protected shell.
       // Pause reads before the snapshot barrier so no candidate output can
       // land in the old history after it has been captured and replaced.
       const release = candidate.flow.hold();
@@ -465,8 +481,7 @@ export class PtyManager {
           undefined,
           true,
         );
-        const data =
-          previousScreen.data + candidateScreen.data.replace("\x1b[?1049h", "");
+        const data = previousScreen.data + candidateScreen.data;
         candidate.history.dispose();
         candidate.history = new TerminalHistory(
           previousScreen.cols,
