@@ -14,6 +14,7 @@ import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
+import { Terminal } from "@xterm/headless";
 import { PtyManager } from "../src/pty-manager";
 import { TerminalLifecycle } from "../src/terminal-lifecycle";
 import { TerminalOutputStore } from "../src/terminal-output-store";
@@ -430,7 +431,7 @@ test("a killed Extension Host leaves the protected task alive for a new host", a
   await until(() => !running(pid));
 });
 
-test("protected terminal carries colors, Unicode, bracketed paste, mouse and modified Enter", async (t) => {
+test("protected terminal carries colors, Unicode, paste, application-requested mouse and modified Enter", async (t) => {
   const h = await setup(t);
   if (!h) return;
   const manager = h.manager();
@@ -449,12 +450,33 @@ test("protected terminal carries colors, Unicode, bracketed paste, mouse and mod
   await manager.start("protocol", h.root, undefined, false, {
     backend: "tmux",
   });
+  await until(
+    () => manager.output("protocol")?.includes("TMUX_READY>") || false,
+  );
+  const terminal = new Terminal({ allowProposedApi: true });
+  t.after(() => terminal.dispose());
+  const render = () =>
+    new Promise<void>((resolve) =>
+      terminal.write(manager.output("protocol")!, resolve),
+    );
+  await render();
+  assert.equal(
+    terminal.modes.mouseTrackingMode,
+    "none",
+    "tmux must not capture mouse input in the shell",
+  );
   manager.input(
     "protocol",
     `exec ${quote(process.execPath)} ${quote(script)}\r`,
   );
   await until(
     () => manager.output("protocol")?.includes("PROTOCOL_READY") || false,
+  );
+  await render();
+  assert.equal(
+    terminal.modes.mouseTrackingMode,
+    "vt200",
+    "applications can still request mouse input with tmux mouse off",
   );
   const id = manager.metadata("protocol")!.backendSessionId!;
   const capture = (

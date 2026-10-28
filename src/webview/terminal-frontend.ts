@@ -94,6 +94,7 @@ export class TerminalFrontend {
       // terminal background. Inline images have their own transparent layer.
       allowTransparency: false,
       rightClickSelectsWord: true,
+      macOptionClickForcesSelection: true,
     });
     terminal.loadAddon(new Unicode11Addon());
     terminal.unicode.activeVersion = "11";
