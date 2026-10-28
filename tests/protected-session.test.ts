@@ -59,6 +59,7 @@ async function setup(t: TestContext, shell = "/bin/bash") {
   const errors: string[] = [];
   const managers: PtyManager[] = [];
   const ids = new Set<string>();
+  const outputChunks = new Map<string, string[]>();
   function manager(outputStore?: TerminalOutputStore) {
     const value = new PtyManager(
       (message) => {
@@ -68,6 +69,16 @@ async function setup(t: TestContext, shell = "/bin/bash") {
           backendSessionId?: string;
         };
         if (event.type === "error") errors.push(event.message);
+        if (event.type === "data") {
+          const chunks =
+            outputChunks.get((message as { sessionId: string }).sessionId) ||
+            [];
+          chunks.push((message as { data: string }).data);
+          outputChunks.set(
+            (message as { sessionId: string }).sessionId,
+            chunks,
+          );
+        }
         if (event.type === "metadata" && event.backendSessionId)
           ids.add(event.backendSessionId);
       },
@@ -88,8 +99,170 @@ async function setup(t: TestContext, shell = "/bin/bash") {
     for (const id of ids) await backend.destroy(id);
     await rm(root, { recursive: true, force: true });
   });
-  return { root, errors, manager, ids };
+  return { root, errors, manager, ids, outputChunks };
 }
+
+function renderedText(terminal: Terminal) {
+  const buffer = terminal.buffer.active;
+  const lines: string[] = [];
+  for (let i = 0; i < buffer.length; i++)
+    lines.push(buffer.getLine(i)?.translateToString(true) || "");
+  return lines.join("\n");
+}
+
+async function writeChunks(terminal: Terminal, chunks: string[], from: number) {
+  const data = chunks.slice(from).join("");
+  if (!data) return chunks.length;
+  await new Promise<void>((resolve) => terminal.write(data, resolve));
+  return chunks.length;
+}
+
+function occurrenceCount(value: string, text: string) {
+  return text.split(value).length - 1;
+}
+
+test("protected output renders every live row and preserves screen transitions", async (t) => {
+  const h = await setup(t);
+  if (!h) return;
+  const manager = h.manager();
+  const terminal = new Terminal({
+    allowProposedApi: true,
+    cols: 120,
+    rows: 48,
+    scrollback: 2000,
+  });
+  t.after(() => terminal.dispose());
+  await manager.start("complete", h.root, undefined, false, {
+    backend: "tmux",
+  });
+  await until(
+    () => manager.output("complete")?.includes("TMUX_READY>") || false,
+  );
+  manager.resize("complete", 120, 48);
+  const id = manager.metadata("complete")!.backendSessionId!;
+  await until(
+    async () =>
+      (
+        await exec("tmux", [
+          "-L",
+          "gaogrid",
+          "display-message",
+          "-p",
+          "-t",
+          `=${id}:0.0`,
+          "#{pane_width}x#{pane_height}",
+        ])
+      ).stdout.trim() === "120x48",
+  );
+  const initialSnapshot = await manager.replay("complete");
+  assert.ok(initialSnapshot);
+  await new Promise<void>((resolve) =>
+    terminal.write(initialSnapshot.data, resolve),
+  );
+  let cursor = h.outputChunks.get("complete")?.length || 0;
+
+  const names = Array.from(
+    { length: 400 },
+    (_, i) => `fixture_${String(i).padStart(3, "0")}`,
+  );
+  const batchDirs = await Promise.all(
+    Array.from({ length: 5 }, (_, i) =>
+      mkdir(join(h.root, `batch_${i + 1}`)).then(() =>
+        join(h.root, `batch_${i + 1}`),
+      ),
+    ),
+  );
+  await Promise.all(
+    names.map((name, i) =>
+      writeFile(join(batchDirs[Math.floor(i / 80)], name), ""),
+    ),
+  );
+  // Each short command names only a directory, so command echo cannot contain
+  // fixture names and inflate the rendered output count.
+  const commands = Array.from({ length: 5 }, (_, batch) => {
+    return `ls -1 ${quote(batchDirs[batch])}; printf 'BATCH_%s_DONE\\n' ${batch + 1}`;
+  });
+  manager.input("complete", commands.join("; ") + "\r");
+  await until(
+    () => manager.output("complete")?.includes("BATCH_5_DONE") || false,
+    20000,
+  );
+  const pane = (
+    await exec("tmux", [
+      "-L",
+      "gaogrid",
+      "capture-pane",
+      "-p",
+      "-S",
+      "-",
+      "-t",
+      `=${id}:0.0`,
+    ])
+  ).stdout;
+  assert.equal(
+    names.filter((name) => pane.includes(name)).length,
+    400,
+    "tmux history contains all fixture rows",
+  );
+  const chunks = h.outputChunks.get("complete") || [];
+  cursor = await writeChunks(terminal, chunks, cursor);
+  const text = renderedText(terminal);
+  const visibleNames = names.filter(
+    (name) => occurrenceCount(name, text) === 1,
+  );
+  assert.equal(
+    visibleNames.length,
+    400,
+    `live xterm render retained exactly one copy of ${visibleNames.length}/400 rows`,
+  );
+  assert.match(text, /BATCH_5_DONE/);
+  assert.equal(terminal.buffer.active.type, "normal");
+
+  manager.input("complete", "printf '\\033[?1049hALT_%s\\n' SCREEN_READY\r");
+  await until(
+    () => manager.output("complete")?.includes("ALT_SCREEN_READY") || false,
+  );
+  const updated = h.outputChunks.get("complete") || [];
+  cursor = await writeChunks(terminal, updated, cursor);
+  assert.equal(terminal.buffer.active.type, "alternate");
+  manager.input("complete", "printf '\\033[?1049lNORMAL_%s\\n' SCREEN_READY\r");
+  await until(
+    () => manager.output("complete")?.includes("NORMAL_SCREEN_READY") || false,
+  );
+  const finalChunks = h.outputChunks.get("complete") || [];
+  await writeChunks(terminal, finalChunks, cursor);
+  assert.equal(terminal.buffer.active.type, "normal");
+  const finalText = renderedText(terminal);
+  assert.match(finalText, /NORMAL_SCREEN_READY/);
+  assert.equal(
+    names.filter((name) => occurrenceCount(name, finalText) === 1).length,
+    400,
+  );
+
+  const saved = manager.metadata("complete")!;
+  await manager.shutdown();
+  const restored = h.manager();
+  h.outputChunks.delete("complete");
+  await restored.start("complete", h.root, undefined, true, saved);
+  const recoveredSnapshot = await restored.replay("complete");
+  assert.ok(recoveredSnapshot);
+  const restoredTerminal = new Terminal({
+    allowProposedApi: true,
+    cols: 120,
+    rows: 48,
+    scrollback: 2000,
+  });
+  t.after(() => restoredTerminal.dispose());
+  await new Promise<void>((resolve) =>
+    restoredTerminal.write(recoveredSnapshot.data, resolve),
+  );
+  const recoveredText = renderedText(restoredTerminal);
+  assert.equal(
+    names.filter((name) => occurrenceCount(name, recoveredText) === 1).length,
+    400,
+  );
+  assert.equal(restoredTerminal.buffer.active.type, "normal");
+});
 
 for (const shell of ["/bin/bash", "/bin/zsh"]) {
   test(`${shell}: idle promotion, history, resize, task survival, reattach and explicit destruction`, async (t) => {
