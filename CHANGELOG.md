@@ -2,6 +2,22 @@
 
 All notable changes to GaoGrid are documented here.
 
+## [0.6.2] - 2026-10-29
+
+### Features
+
+- Explain the built-in xterm.js terminal, isolated tmux server and configuration,
+  version requirement, and unavailable settings in the settings help.
+- Add default and recommended legends, and clarify Scroll Behavior options as
+  App First, Terminal First, and App Only.
+
+### Fixes
+
+- Keep tmux Mouse visible and enabled by default in Control and Attach modes.
+  Apply changes to existing protected sessions and preserve the preference
+  during promotion and reconnect.
+- Keep Scroll Behavior options visible but disabled in Attach Mode.
+
 ## [0.6.1] - 2026-10-29
 
 ### Fixes
