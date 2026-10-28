@@ -208,9 +208,10 @@ export function renderTmuxSnapshot(
   const activeRows = captureRows(Buffer.concat(active));
   const savedRows = captureRows(Buffer.concat(saved));
   const height = info.height;
-  const historyRows = info.alternate
-    ? activeRows.slice(0, Math.max(0, activeRows.length - height))
-    : activeRows.slice(0, Math.max(0, activeRows.length - height));
+  const historyRows = activeRows.slice(
+    0,
+    Math.max(0, activeRows.length - height),
+  );
   const normalRows = info.alternate ? savedRows : activeRows;
 
   // Move to the normal buffer, preserve scrollback, then deterministically

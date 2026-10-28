@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -14,16 +15,18 @@ async function fakeTmux() {
   const script = `#!/usr/bin/env node
 const fs = require('node:fs');
 const info = '%1|5|2|0|0|0|1|0|0|0|0|0|0|0|0|0|1|0|0|1|0|0';
-const blocks = [[], [], [info], ['saved'], ['hello', 'CAPTURE_GAP_MARKER', '%begin 9 9 9', '%end 7 7 7']];
+const pending = String.fromCharCode(92) + '033[?';
+const blocks = [[], [], [info], ['saved'], [pending], ['hello', 'CAPTURE_GAP_MARKER', '%begin 9 9 9', '%end 7 7 7']];
 let wire = '';
 for (let i = 0; i < blocks.length; i++) {
-  if (i === 4) wire += '%output %1 CAPTURE_GAP_MARKER' + String.fromCharCode(92) + '012\\n';
+  if (i === 5) wire += '%output %1 CAPTURE_GAP_MARKER' + String.fromCharCode(92) + '012\\n';
   wire += '%begin 10 ' + (i + 1) + ' 0\\n' + blocks[i].join('\\n') + '\\n%end 10 ' + (i + 1) + ' 0\\n';
 }
 // Deliberately split protocol tokens and UTF-8/octal bytes across writes.
 for (let i = 0; i < wire.length; i += 7) process.stdout.write(wire.slice(i, i + 7));
 setTimeout(() => {
   const slash = String.fromCharCode(92);
+  process.stdout.write('%output %1 25h\\n');
   process.stdout.write('%output %1 ' + slash + '303\\n');
   process.stdout.write('%output %1 ' + slash + '251' + slash + '012%begin 9 9 9' + slash + '012' + slash + '303' + slash + '251\\n');
   process.stdout.write('%begin 37 0 0\\nSECRET_COMMAND_OUTPUT\\n%error 37 0 0\\n');
@@ -52,7 +55,11 @@ test("tmux control mode frames snapshots, decodes live bytes, pauses reads, and 
   await processAdapter.ready;
   processAdapter.pause();
   await new Promise((resolve) => setTimeout(resolve, 250));
-  assert.equal(received.length, 1, "pause stops reading the control pipe");
+  assert.equal(
+    received.length,
+    1,
+    "an incomplete pending CSI is held until its continuation arrives",
+  );
   processAdapter.resume();
   await new Promise((resolve) => setTimeout(resolve, 20));
   processAdapter.write(Buffer.from([0x41, 0x0a, 0x00, 0xff]));
@@ -68,6 +75,11 @@ test("tmux control mode frames snapshots, decodes live bytes, pauses reads, and 
     received.join("").split("CAPTURE_GAP_MARKER").length - 1,
     1,
     "final capture closes the output boundary without a gap or duplicate",
+  );
+  assert.equal(
+    received[1],
+    "\x1b[?25h",
+    "pending CSI and its first continuation arrive as one frontend chunk",
   );
   assert.ok(
     !received.join("").includes("%begin 10"),
@@ -132,7 +144,8 @@ test("invalid snapshot metadata rejects ready without escaping the pipe callback
     ["2", ""], // initial refresh
     ["3", "not pane metadata"],
     ["4", "saved"],
-    ["5", "active"],
+    ["5", ""], // pending parser bytes
+    ["6", "active"],
   ]
     .map(([id, value]) => `%begin ${id} 0 0\n${value}\n%end ${id} 0 0\n`)
     .join("");
@@ -219,3 +232,108 @@ test("an isolated real tmux control client attaches, snapshots, and streams a li
     "live pane output follows the snapshot",
   );
 });
+
+test(
+  "a new tmux control client retains UTF-8 split across attachment",
+  {
+    todo: "tmux capture cannot expose a code point started before this client attached",
+  },
+  async (t) => {
+    const dir = await mkdtemp("/tmp/gc-");
+    const server = `g${randomUUID().slice(0, 7)}`;
+    const session = `g${randomUUID().slice(0, 7)}`;
+    const firstByte = join(dir, "first-byte");
+    const continueGate = join(dir, "continue-gate");
+    const continued = join(dir, "continued");
+    const app = join(dir, "partial-utf8.sh");
+    await writeFile(
+      app,
+      `#!/bin/sh\nprintf '\\303'\ntouch '${firstByte}'\nwhile [ ! -e '${continueGate}' ]; do sleep 0.02; done\nprintf '\\251UTF8_CONTINUED'\ntouch '${continued}'\nsleep 8\n`,
+    );
+    await chmod(app, 0o755);
+    const env = {
+      ...process.env,
+      TMUX_TMPDIR: dir,
+      TMUX: undefined,
+      TMUX_PANE: undefined,
+    };
+    const tmux = (args: string[]) =>
+      execFileSync("tmux", ["-L", server, "-f", "/dev/null", ...args], {
+        env,
+        stdio: "ignore",
+      });
+    let adapter: TmuxControlProcess | undefined;
+    t.after(async () => {
+      adapter?.kill();
+      try {
+        tmux(["kill-server"]);
+      } catch {}
+      await rm(dir, { recursive: true, force: true });
+    });
+    try {
+      execFileSync("tmux", ["-V"], { env, stdio: "ignore" });
+      tmux(["new-session", "-d", "-s", session, "-x", "80", "-y", "24", app]);
+    } catch {
+      t.skip("tmux is unavailable");
+      return;
+    }
+    const markerDeadline = Date.now() + 5000;
+    while (!existsSync(firstByte) && Date.now() < markerDeadline)
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.ok(
+      existsSync(firstByte),
+      "pane emitted the leading UTF-8 byte before attach",
+    );
+    const received: string[] = [];
+    adapter = new TmuxControlProcess({
+      args: [
+        "-L",
+        server,
+        "-f",
+        "/dev/null",
+        "-C",
+        "attach-session",
+        "-t",
+        `=${session}:0.0`,
+      ],
+      target: `=${session}:0.0`,
+      cwd: dir,
+      env,
+      cols: 80,
+      rows: 24,
+    });
+    adapter.onData((data) => received.push(data));
+    await adapter.ready;
+    assert.ok(
+      received.length > 0,
+      "snapshot completed while the code point was incomplete",
+    );
+    assert.ok(
+      !existsSync(continued),
+      "producer remains paused until after ready",
+    );
+    await writeFile(continueGate, "continue");
+    const deadline = Date.now() + 5000;
+    while (!existsSync(continued) && Date.now() < deadline)
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.ok(
+      existsSync(continued),
+      "pane emitted the UTF-8 continuation after attach",
+    );
+    const outputDeadline = Date.now() + 2000;
+    while (
+      !received.join("").includes("UTF8_CONTINUED") &&
+      Date.now() < outputDeadline
+    )
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    const output = received.join("");
+    assert.ok(
+      output.includes("éUTF8_CONTINUED"),
+      "control output retains both UTF-8 bytes",
+    );
+    assert.ok(
+      !output.includes("�"),
+      "control output has no replacement character",
+    );
+  },
+);

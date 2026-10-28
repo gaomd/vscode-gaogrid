@@ -409,9 +409,7 @@ export class PtyManager {
         if (await this.tmux.attached(id, session.process.pid)) return;
         await new Promise((resolve) => setTimeout(resolve, 30));
       }
-      throw new Error(
-        `Could not attach to protected session. ${session.output.trim()}`,
-      );
+      throw new Error("Could not attach to protected session.");
     } catch (error) {
       if (!session.exited) session.process.kill();
       session.history.dispose();

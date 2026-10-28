@@ -20,7 +20,7 @@ export interface TmuxControlOptions {
 type Exit = { exitCode: number; signal?: number };
 type Listener<T> = (value: T) => void;
 const quote = (value: string) => `'${value.replace(/'/g, "'\\''")}'`;
-const SNAPSHOT_BLOCKS = 4; // refresh-client, metadata, saved capture, active capture
+const SNAPSHOT_BLOCKS = 5; // refresh-client, metadata, saved, pending, active capture
 const MAX_CONTROL_LINE_BYTES = 16 * 1024 * 1024;
 const READY_TIMEOUT_MS = 30_000;
 
@@ -38,6 +38,8 @@ export class TmuxControlProcess {
   private paneId = "";
   private active: Buffer[] = [];
   private saved: Buffer[] = [];
+  private pending: Buffer[] = [];
+  private pendingPrefix: Buffer = Buffer.alloc(0);
   private snapshotDone = false;
   private attached = false;
   private snapshotCommands = "";
@@ -105,6 +107,7 @@ export class TmuxControlProcess {
       `refresh-client -C ${Math.max(1, options.cols)}x${Math.max(1, options.rows)}`,
       `display-message -p -t ${target} ${quote(TMUX_SNAPSHOT_FORMAT)}`,
       `capture-pane -p -e -C -a -q -t ${target} -S -10000`,
+      `capture-pane -p -C -P -t ${target}`,
       // Capture the active pane last so notifications from before this command
       // are reflected in the snapshot at the final ordered boundary.
       `capture-pane -p -e -C -t ${target} -S -10000`,
@@ -210,10 +213,15 @@ export class TmuxControlProcess {
     if (output) {
       const payloadOffset = Buffer.byteLength(output[0], "utf8");
       const paneBytes = decodeTmuxEscapes(bytes.subarray(payloadOffset));
-      if (this.snapshotDone && output[1] === this.paneId)
+      if (this.snapshotDone && output[1] === this.paneId) {
+        const orderedBytes = this.pendingPrefix.length
+          ? Buffer.concat([this.pendingPrefix, paneBytes])
+          : paneBytes;
+        this.pendingPrefix = Buffer.alloc(0);
         this.deliver(
-          this.outputFilter.write(this.paneDecoder.write(paneBytes)),
+          this.outputFilter.write(this.paneDecoder.write(orderedBytes)),
         );
+      }
       // Earlier %output records are represented by capture-pane in the batch.
       return;
     }
@@ -232,7 +240,8 @@ export class TmuxControlProcess {
       this.saved = lines.map((line) =>
         Buffer.concat([line, Buffer.from("\n")]),
       );
-    else if (this.completedBlocks === 3)
+    else if (this.completedBlocks === 3) this.pending = lines;
+    else if (this.completedBlocks === 4)
       this.active = lines.map((line) =>
         Buffer.concat([line, Buffer.from("\n")]),
       );
@@ -243,6 +252,10 @@ export class TmuxControlProcess {
       this.snapshotDone = true;
       clearTimeout(this.readyTimer);
       this.deliver(snapshot.data);
+      // Keep an incomplete parser prefix adjacent to its continuation in the
+      // post-snapshot stream; separate delivery would lose parser state when
+      // the frontend rebuilds from parsed terminal cells.
+      this.pendingPrefix = decodeTmuxEscapes(Buffer.concat(this.pending));
       this.readyResolve();
     }
   }
