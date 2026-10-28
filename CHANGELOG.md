@@ -2,6 +2,13 @@
 
 All notable changes to GaoGrid are documented here.
 
+## [0.6.1] - 2026-10-29
+
+### Fixes
+
+- Match tmux Control Mode's color-query replies to the editor theme, fixing dark
+  Codex input boxes and message backgrounds in light themes.
+
 ## [0.6.0] - 2026-10-29
 
 ### Features
