@@ -74,6 +74,7 @@ export class WorkspaceController {
   private preferences: TerminalPreferences = {
     defaultProtected: false,
     transport: "control",
+    tmuxMouse: true,
     mousePolicy: "application",
   };
   private presentation: WindowPresentation = {

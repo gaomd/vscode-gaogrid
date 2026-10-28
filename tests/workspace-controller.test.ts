@@ -1025,6 +1025,7 @@ test("new terminal defaults apply protected attach mode only to newly created ta
   h.controller.setPreferences({
     defaultProtected: true,
     transport: "attach",
+    tmuxMouse: true,
     mousePolicy: "application",
   });
   h.actions.createTab("a");

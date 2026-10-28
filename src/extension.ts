@@ -126,6 +126,7 @@ export function activate(context: vscode.ExtensionContext) {
         "resources",
         "tmux.conf",
       ),
+      tmuxMouse: terminalPreferences().tmuxMouse,
       defaultShell: () =>
         vscode.workspace
           .getConfiguration("gaogrid")
@@ -885,6 +886,8 @@ export function activate(context: vscode.ExtensionContext) {
         e.affectsConfiguration("editor.fontFamily")
       )
         post({ type: "theme", settings: terminalSettings() });
+      if (e.affectsConfiguration("gaogrid.tmuxMouse"))
+        void manager.setTmuxMouse(terminalPreferences().tmuxMouse);
       if (e.affectsConfiguration("gaogrid")) {
         post({ type: "preferences", preferences: terminalPreferences() });
       }
@@ -1002,6 +1005,7 @@ function terminalPreferences(): TerminalPreferences {
   return {
     defaultProtected: configuration.get<boolean>("defaultProtected", false),
     transport: transport === "attach" ? "attach" : "control",
+    tmuxMouse: configuration.get<boolean>("tmuxMouse", true),
     mousePolicy:
       mousePolicy === "terminal" || mousePolicy === "exclusive"
         ? mousePolicy
@@ -1018,6 +1022,8 @@ async function updateTerminalPreferences(value: unknown) {
     updates.push(["defaultProtected", preferences.defaultProtected]);
   if (preferences.transport === "control" || preferences.transport === "attach")
     updates.push(["transportMode", preferences.transport]);
+  if (typeof preferences.tmuxMouse === "boolean")
+    updates.push(["tmuxMouse", preferences.tmuxMouse]);
   if (
     preferences.mousePolicy === "application" ||
     preferences.mousePolicy === "terminal" ||

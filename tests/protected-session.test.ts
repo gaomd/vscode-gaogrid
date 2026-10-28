@@ -68,6 +68,7 @@ async function setup(t: TestContext, shell = "/bin/bash") {
     outputStore?: TerminalOutputStore,
     tmuxBackend?: TmuxBackend,
     controlProcessFactory?: (options: TmuxControlOptions) => any,
+    tmuxMouse?: boolean,
   ) {
     const value = new PtyManager(
       (message) => {
@@ -97,6 +98,7 @@ async function setup(t: TestContext, shell = "/bin/bash") {
         outputStore,
         tmuxBackend,
         controlProcessFactory,
+        tmuxMouse,
         environment: { ...process.env, HOME: root, ZDOTDIR: undefined },
       },
     );
@@ -346,6 +348,38 @@ test("a new protected terminal can use the native attach transport", async (t) =
   );
   manager.input("attach", "printf 'ATTACH_%s\\n' MODE\r");
   await until(() => manager.output("attach")?.includes("ATTACH_MODE") || false);
+  assert.deepEqual(h.errors, []);
+});
+
+test("native attach can use local selection with tmux mouse off", async (t) => {
+  const h = await setup(t);
+  if (!h) return;
+  const manager = h.manager(undefined, undefined, undefined, false);
+  await manager.start("attach-local", h.root, undefined, false, {
+    backend: "tmux",
+    transport: "attach",
+  });
+  await until(
+    () => manager.output("attach-local")?.includes("TMUX_READY>") || false,
+  );
+  const id = manager.metadata("attach-local")!.backendSessionId!;
+  const mouse = async () =>
+    (
+      await exec("tmux", [
+        "-L",
+        "gaogrid",
+        "show-options",
+        "-wv",
+        "-t",
+        `=${id}:0`,
+        "mouse",
+      ])
+    ).stdout.trim();
+  assert.equal(await mouse(), "off");
+  await manager.setTmuxMouse(true);
+  assert.equal(await mouse(), "on");
+  await manager.setTmuxMouse(false);
+  assert.equal(await mouse(), "off");
   assert.deepEqual(h.errors, []);
 });
 

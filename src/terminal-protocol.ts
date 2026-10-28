@@ -23,6 +23,7 @@ export type MousePolicy = "application" | "terminal" | "exclusive";
 export interface TerminalPreferences {
   defaultProtected: boolean;
   transport: TerminalTransport;
+  tmuxMouse: boolean;
   mousePolicy: MousePolicy;
 }
 

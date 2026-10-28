@@ -38,6 +38,7 @@ test("mouse policy follows libghostty-style application and Shift routing", asyn
   f.view.setPreferences({
     defaultProtected: false,
     transport: "control",
+    tmuxMouse: true,
     mousePolicy: "application",
   });
   assert.equal(dispatch(wheel(-1)), true);
@@ -46,6 +47,7 @@ test("mouse policy follows libghostty-style application and Shift routing", asyn
   f.view.setPreferences({
     defaultProtected: false,
     transport: "control",
+    tmuxMouse: true,
     mousePolicy: "terminal",
   });
   assert.equal(dispatch(wheel(-1)), false);
@@ -53,6 +55,7 @@ test("mouse policy follows libghostty-style application and Shift routing", asyn
   f.view.setPreferences({
     defaultProtected: false,
     transport: "control",
+    tmuxMouse: true,
     mousePolicy: "exclusive",
   });
   assert.equal(dispatch(wheel(-1, true)), true);
@@ -61,6 +64,7 @@ test("mouse policy follows libghostty-style application and Shift routing", asyn
   f.view.setPreferences({
     defaultProtected: false,
     transport: "attach",
+    tmuxMouse: true,
     mousePolicy: "terminal",
   });
   assert.equal(dispatch(wheel(-1)), true);
