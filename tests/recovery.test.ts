@@ -192,3 +192,43 @@ test("protected recovery restores backend identifiers and timestamps, never stal
   assert.equal(root.tabs[0].updatedAt, 456);
   assert.equal(root.tabs[0].connectionState, undefined);
 });
+
+test("transport recovery preserves explicit attach but retries control after degradation", () => {
+  const explicit = restoreState({
+    workspaces: [
+      {
+        id: "ws",
+        root: {
+          ...pane,
+          tabs: [{ ...tab, backend: "tmux", transport: "attach" }],
+        },
+      },
+    ],
+  });
+  const explicitRoot = explicit.workspaces[0].root;
+  if (explicitRoot?.type !== "pane") throw new Error("missing pane");
+  assert.equal(explicitRoot.tabs[0].transport, "attach");
+
+  const degraded = restoreState({
+    workspaces: [
+      {
+        id: "ws",
+        root: {
+          ...pane,
+          tabs: [
+            {
+              ...tab,
+              backend: "tmux",
+              transport: "attach",
+              degraded: true,
+            },
+          ],
+        },
+      },
+    ],
+  });
+  const degradedRoot = degraded.workspaces[0].root;
+  if (degradedRoot?.type !== "pane") throw new Error("missing pane");
+  assert.equal(degradedRoot.tabs[0].transport, undefined);
+  assert.equal(degradedRoot.tabs[0].degraded, undefined);
+});

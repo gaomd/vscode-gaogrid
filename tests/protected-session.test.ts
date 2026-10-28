@@ -18,7 +18,11 @@ import { Terminal } from "@xterm/headless";
 import { PtyManager } from "../src/pty-manager";
 import { TerminalLifecycle } from "../src/terminal-lifecycle";
 import { TerminalOutputStore } from "../src/terminal-output-store";
-import { TmuxBackend } from "../src/tmux-backend";
+import { supportedTmuxVersion, TmuxBackend } from "../src/tmux-backend";
+import {
+  TmuxControlProcess,
+  type TmuxControlOptions,
+} from "../src/tmux-control";
 
 const exec = promisify(execFile);
 const quote = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`;
@@ -60,7 +64,12 @@ async function setup(t: TestContext, shell = "/bin/bash") {
   const managers: PtyManager[] = [];
   const ids = new Set<string>();
   const outputChunks = new Map<string, string[]>();
-  function manager(outputStore?: TerminalOutputStore) {
+  function manager(
+    outputStore?: TerminalOutputStore,
+    tmuxBackend?: TmuxBackend,
+    controlProcessFactory?: (options: TmuxControlOptions) => any,
+    tmuxMouse?: boolean,
+  ) {
     const value = new PtyManager(
       (message) => {
         const event = message as {
@@ -87,6 +96,9 @@ async function setup(t: TestContext, shell = "/bin/bash") {
         defaultDirectories: () => [root],
         tmuxConfigPath: config,
         outputStore,
+        tmuxBackend,
+        controlProcessFactory,
+        tmuxMouse,
         environment: { ...process.env, HOME: root, ZDOTDIR: undefined },
       },
     );
@@ -307,6 +319,148 @@ test("protected output renders every live row and preserves screen transitions",
   assert.equal(restoredTerminal.buffer.active.type, "normal");
 });
 
+test("a new protected terminal can use the native attach transport", async (t) => {
+  const h = await setup(t);
+  if (!h) return;
+  const manager = h.manager();
+  await manager.start("attach", h.root, undefined, false, {
+    backend: "tmux",
+    transport: "attach",
+  });
+  await until(() => manager.output("attach")?.includes("TMUX_READY>") || false);
+  const metadata = manager.metadata("attach")!;
+  assert.equal(metadata.transport, "attach");
+  assert.equal(metadata.degraded, undefined);
+  assert.ok(metadata.backendSessionId);
+  assert.equal(
+    (
+      await exec("tmux", [
+        "-L",
+        "gaogrid",
+        "show-options",
+        "-wv",
+        "-t",
+        `=${metadata.backendSessionId}:0`,
+        "mouse",
+      ])
+    ).stdout.trim(),
+    "on",
+  );
+  manager.input("attach", "printf 'ATTACH_%s\\n' MODE\r");
+  await until(() => manager.output("attach")?.includes("ATTACH_MODE") || false);
+  assert.deepEqual(h.errors, []);
+});
+
+test("native attach can use local selection with tmux mouse off", async (t) => {
+  const h = await setup(t);
+  if (!h) return;
+  const manager = h.manager(undefined, undefined, undefined, false);
+  await manager.start("attach-local", h.root, undefined, false, {
+    backend: "tmux",
+    transport: "attach",
+  });
+  await until(
+    () => manager.output("attach-local")?.includes("TMUX_READY>") || false,
+  );
+  const id = manager.metadata("attach-local")!.backendSessionId!;
+  const mouse = async () =>
+    (
+      await exec("tmux", [
+        "-L",
+        "gaogrid",
+        "show-options",
+        "-wv",
+        "-t",
+        `=${id}:0`,
+        "mouse",
+      ])
+    ).stdout.trim();
+  assert.equal(await mouse(), "off");
+  await manager.setTmuxMouse(true);
+  assert.equal(await mouse(), "on");
+  await manager.setTmuxMouse(false);
+  assert.equal(await mouse(), "off");
+  assert.deepEqual(h.errors, []);
+});
+
+test("display reconnect replaces only the control client", async (t) => {
+  const h = await setup(t);
+  if (!h) return;
+  const manager = h.manager();
+  await manager.start("refresh", h.root, undefined, false, {
+    backend: "tmux",
+    transport: "control",
+  });
+  await until(
+    () => manager.output("refresh")?.includes("TMUX_READY>") || false,
+  );
+  const before = manager.metadata("refresh")!;
+  const pane = await manager.tmux.inspect(before.backendSessionId!);
+  const refreshed = await manager.reconnectDisplay("refresh");
+  assert.equal(refreshed?.backendSessionId, before.backendSessionId);
+  assert.equal(refreshed?.transport, "control");
+  assert.equal(refreshed?.degraded, false);
+  assert.equal(
+    (await manager.tmux.inspect(before.backendSessionId!))?.pid,
+    pane?.pid,
+  );
+  assert.deepEqual(h.errors, []);
+});
+
+test("control initialization failure falls back to native attach without destroying the session", async (t) => {
+  const h = await setup(t);
+  if (!h) return;
+  const manager = h.manager(undefined, undefined, () => {
+    throw new Error("injected control failure");
+  });
+  await manager.start("fallback", h.root, undefined, false, {
+    backend: "tmux",
+    transport: "control",
+  });
+  await until(
+    () => manager.output("fallback")?.includes("TMUX_READY>") || false,
+  );
+  const metadata = manager.metadata("fallback")!;
+  assert.equal(metadata.transport, "attach");
+  assert.equal(metadata.degraded, true);
+  assert.equal(metadata.connectionState, "connected");
+  assert.ok(await manager.tmux.inspect(metadata.backendSessionId!));
+  manager.input("fallback", "printf 'FALLBACK_%s\\n' OK\r");
+  await until(
+    () => manager.output("fallback")?.includes("FALLBACK_OK") || false,
+  );
+});
+
+test("a failed control refresh remains attached and can be retried manually", async (t) => {
+  const h = await setup(t);
+  if (!h) return;
+  let failControl = true;
+  const manager = h.manager(undefined, undefined, (options) => {
+    if (failControl) throw new Error("injected refresh failure");
+    return new TmuxControlProcess(options);
+  });
+  await manager.start("refresh-retry", h.root, undefined, false, {
+    backend: "tmux",
+    transport: "control",
+  });
+  await until(
+    () => manager.output("refresh-retry")?.includes("TMUX_READY>") || false,
+  );
+  const attached = manager.metadata("refresh-retry")!;
+  assert.equal(attached.degraded, true);
+  const failed = await manager.reconnectDisplay("refresh-retry");
+  assert.equal(failed?.displayState, "failed");
+  assert.equal(failed?.transport, "attach");
+  assert.equal(failed?.connectionState, "connected");
+
+  failControl = false;
+  const refreshed = await manager.reconnectDisplay("refresh-retry");
+  assert.equal(refreshed?.displayState, undefined);
+  assert.equal(refreshed?.transport, "control");
+  assert.equal(refreshed?.degraded, false);
+  assert.equal(refreshed?.backendSessionId, attached.backendSessionId);
+});
+
 for (const shell of ["/bin/bash", "/bin/zsh"]) {
   test(`${shell}: idle promotion, history, resize, task survival, reattach and explicit destruction`, async (t) => {
     const h = await setup(t, shell);
@@ -491,24 +645,34 @@ test("missing tmux session gets a fresh protected shell without relaunching an a
 test("failed promotion preserves the original direct PTY; failed reconnect retains live backend metadata", async (t) => {
   const h = await setup(t);
   if (!h) return;
-  const manager = h.manager();
+  let failCreate = true;
+  let failAttach = false;
+  class FaultyBackend extends TmuxBackend {
+    override async create(...args: Parameters<TmuxBackend["create"]>) {
+      if (failCreate) throw new Error("injected create failure");
+      return super.create(...args);
+    }
+    override async attached(...args: Parameters<TmuxBackend["attached"]>) {
+      if (failAttach) throw new Error("injected attach failure");
+      return super.attached(...args);
+    }
+  }
+  const backend = new FaultyBackend(config, {
+    ...process.env,
+    HOME: h.root,
+    ZDOTDIR: undefined,
+  });
+  const manager = h.manager(undefined, backend);
   await manager.start("source", h.root);
   await until(() => manager.output("source")?.includes("TMUX_READY>") || false);
-  const create = manager.tmux.create.bind(manager.tmux);
-  manager.tmux.create = async () => {
-    throw new Error("injected create failure");
-  };
   await assert.rejects(manager.promote("source"), /injected create failure/);
   assert.equal(manager.metadata("source")?.backend, "direct");
   manager.input("source", "printf 'STILL_%s\\n' 'USABLE'\r");
   await until(
     () => manager.output("source")?.includes("STILL_USABLE") || false,
   );
-  manager.tmux.create = create;
-  const attached = manager.tmux.attached.bind(manager.tmux);
-  manager.tmux.attached = async () => {
-    throw new Error("injected attach failure");
-  };
+  failCreate = false;
+  failAttach = true;
   const beforeOrphans = await manager.tmux.orphans([]);
   await assert.rejects(manager.promote("source"), /injected attach failure/);
   assert.equal(manager.metadata("source")?.backend, "direct");
@@ -517,14 +681,12 @@ test("failed promotion preserves the original direct PTY; failed reconnect retai
     beforeOrphans,
     "failed promotion must not leak its prepared session",
   );
-  manager.tmux.attached = attached;
+  failAttach = false;
   const saved = await manager.promote("source");
   assert.ok(saved);
   await manager.shutdown();
-  const restored = h.manager();
-  restored.tmux.attached = async () => {
-    throw new Error("retry me");
-  };
+  failAttach = true;
+  const restored = h.manager(undefined, backend);
   await restored.start("source", h.root, undefined, true, saved);
   assert.equal(
     restored.metadata("source")?.backendSessionId,
@@ -532,7 +694,7 @@ test("failed promotion preserves the original direct PTY; failed reconnect retai
   );
   assert.equal(restored.metadata("source")?.connectionState, "disconnected");
   assert.ok(await restored.tmux.inspect(saved.backendSessionId!));
-  restored.tmux.attached = attached;
+  failAttach = false;
   await restored.start("source", h.root, undefined, false, saved);
   assert.equal(restored.metadata("source")?.connectionState, "connected");
 });
@@ -555,6 +717,13 @@ test("capability detection is environment-local and absence leaves direct PTYs u
     () => manager.output("direct")?.includes("DIRECT_WORKS") || false,
   );
   assert.equal(manager.metadata("direct")?.backend, "direct");
+});
+
+test("tmux version support starts at 3.2a", () => {
+  assert.equal(supportedTmuxVersion("tmux 3.1c"), false);
+  assert.equal(supportedTmuxVersion("tmux 3.2"), false);
+  assert.equal(supportedTmuxVersion("tmux 3.2a"), true);
+  assert.equal(supportedTmuxVersion("tmux 3.8"), true);
 });
 
 test("ownership checks reject lookalikes and leave independent tmux servers untouched", async (t) => {
@@ -895,18 +1064,27 @@ test("vim alternate screen survives resizing and returns to the protected shell"
 test("input arriving during promotion aborts the switch and leaves the new task running directly", async (t) => {
   const h = await setup(t);
   if (!h) return;
-  const manager = h.manager();
+  let manager: PtyManager;
+  class RacingBackend extends TmuxBackend {
+    override async create(...args: Parameters<TmuxBackend["create"]>) {
+      const id = await super.create(...args);
+      manager.input("racing", "sleep 300\r");
+      await until(async () =>
+        (await manager.activeTasks(["racing"])).has("racing"),
+      );
+      return id;
+    }
+  }
+  manager = h.manager(
+    undefined,
+    new RacingBackend(config, {
+      ...process.env,
+      HOME: h.root,
+      ZDOTDIR: undefined,
+    }),
+  );
   await manager.start("racing", h.root);
   await until(() => manager.output("racing")?.includes("TMUX_READY>") || false);
-  const create = manager.tmux.create.bind(manager.tmux);
-  manager.tmux.create = async (...args) => {
-    const id = await create(...args);
-    manager.input("racing", "sleep 300\r");
-    await until(async () =>
-      (await manager.activeTasks(["racing"])).has("racing"),
-    );
-    return id;
-  };
   assert.equal(await manager.promote("racing"), undefined);
   assert.equal(manager.metadata("racing")?.backend, "direct");
   assert.equal((await manager.activeTasks(["racing"])).has("racing"), true);

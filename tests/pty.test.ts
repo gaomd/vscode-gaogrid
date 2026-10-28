@@ -72,6 +72,7 @@ for (const shell of ["/bin/zsh", "/bin/bash"]) {
         defaultShell: () => shell,
         defaultDirectories: () => [root],
         outputStore: store,
+        checkpointIntervalMs: 500,
         environment: {
           ...process.env,
           HOME: root,
@@ -87,7 +88,13 @@ for (const shell of ["/bin/zsh", "/bin/bash"]) {
     });
     await manager.start("one", root);
     assert.deepEqual(errors, [], "native PTY must start");
-    await until(() => manager.output("one")?.includes("PTY_READY> ") || false);
+    await until(
+      () => manager.output("one")?.includes("PTY_READY> ") || false,
+    ).catch((error) => {
+      throw new Error(
+        `${String(error)} output=${JSON.stringify(manager.output("one"))} errors=${errors.join(" | ")}`,
+      );
+    });
     assert.ok(
       await inspectProcesses(),
       "PTY task tests require process inspection",

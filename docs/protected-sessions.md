@@ -1,10 +1,11 @@
 # Protected Session Compatibility
 
-Protection is explicit opt-in. Direct tabs run the shell through node-pty;
-protected tabs use a tmux control-mode client with piped input and output. GaoGrid owns
-all workspaces, split trees, panes, and tabs. No tmux layout is exposed.
+Protection is opt-in by default. Direct tabs run the shell through node-pty;
+protected tabs use tmux control mode with piped input and output, or native tmux
+attach when selected. GaoGrid owns all workspaces, split trees, panes, and tabs.
+No tmux layout is exposed.
 
-The control-mode transport is currently a test build. The
+The control-mode transport is currently a validation build. The
 [validation report](protected-control-mode-validation.md) records the checks and
 remaining recovery limits before release.
 
@@ -36,34 +37,35 @@ remaining recovery limits before release.
 Direct-session snapshots preserve rendered text and colors, not raw protocol
 traffic. A previously active alternate application screen is recovered as text in
 normal scrollback, so its old input/mouse modes cannot affect the new shell.
-Snapshots are updated every 500 ms while output arrives and flushed on graceful
+Snapshots may contain up to 10 million UTF-16 code units. Direct snapshots are
+checkpointed every 30 seconds and flushed on graceful
 shutdown. An abrupt host termination can lose output since the last checkpoint.
 Explicit close removes the snapshot; ordinary host shutdown retains it.
 
 ## Protocols
 
-The automated integration suite uses real terminal processes and tmux 3.8 on macOS,
-with bash and zsh. This is the tested environment, not a minimum version claim.
-Options unavailable in older tmux versions are optional; upgrade tmux when a
-particular passthrough or extended-key feature is required.
+The protected-session minimum is tmux 3.2a. The automated integration suite uses
+real terminal processes and tmux 3.8 on macOS with bash and zsh; 3.8 is the
+continuously verified version. Older tmux installations continue to support direct
+terminals, but protection is disabled.
 
-| Feature                | Validation and limitations                                                                                                                               |
-| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| True color / 256 color | Automated capture verifies RGB and palette values.                                                                                                       |
-| Unicode / Chinese      | Automated text round-trip verifies preservation.                                                                                                         |
-| Nerd Font glyphs       | Code point preserved in capture; rendering still requires an installed font.                                                                             |
-| Mouse interaction      | tmux’s own mouse controls are disabled. Applications can still handle mouse input. On macOS, Option-drag can force terminal text selection when needed.  |
-| Bracketed paste        | Automated payload and delimiter round-trip.                                                                                                              |
-| Shift+Enter            | GaoGrid forwards CSI-u input unchanged to the application.                                                                                               |
-| Alternate screen / vim | Real vim edit/save and resize test.                                                                                                                      |
-| OSC 7 cwd              | The existing OSC parser receives pane output; tmux pane cwd inspection remains authoritative for protected sessions.                                     |
-| Clipboard / OSC 52     | Passthrough enabled where supported; the existing xterm frontend does not implement OSC 52 clipboard writes.                                             |
-| SIXEL                  | Depends on tmux build/version or application passthrough. Not verified for visual parity.                                                                |
-| iTerm inline images    | Requires application tmux passthrough; not verified for visual parity.                                                                                   |
-| Kitty graphics         | The current xterm ImageAddon does not provide native Kitty graphics rendering, including in direct tabs.                                                 |
-| nvim / htop            | Not available in the automated test environment; interactive validation remains manual.                                                                  |
-| Codex / Claude Code    | General task persistence and modified-key transport are tested. Full application UI/restart scenarios remain manual. GaoGrid never runs resume commands. |
-| ssh                    | Process ownership/persistence follows the same tmux path. A connection can still fail independently; live remote-session validation remains manual.      |
+| Feature                | Validation and limitations                                                                                                                                                                                                                                                                                  |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| True color / 256 color | Automated capture verifies RGB and palette values.                                                                                                                                                                                                                                                          |
+| Unicode / Chinese      | Automated text round-trip verifies preservation.                                                                                                                                                                                                                                                            |
+| Nerd Font glyphs       | Code point preserved in capture; rendering still requires an installed font.                                                                                                                                                                                                                                |
+| Mouse interaction      | Control mode follows the selected application-first, terminal-first, or application-exclusive policy. Shift-wheel forces history; Option-drag forces selection on macOS. Native attach delegates mouse handling to tmux by default; `gaogrid.tmuxMouse` can be disabled for ordinary local xterm selection. |
+| Bracketed paste        | Automated payload and delimiter round-trip.                                                                                                                                                                                                                                                                 |
+| Shift+Enter            | GaoGrid forwards CSI-u input unchanged to the application.                                                                                                                                                                                                                                                  |
+| Alternate screen / vim | Real vim edit/save and resize test.                                                                                                                                                                                                                                                                         |
+| OSC 7 cwd              | The existing OSC parser receives pane output; tmux pane cwd inspection remains authoritative for protected sessions.                                                                                                                                                                                        |
+| Clipboard / OSC 52     | Codex's built-in selection and copy path works independently. Passthrough is enabled where supported; terminal-mediated OSC 52 writes for remote applications and tmux copy-mode remain a TODO.                                                                                                             |
+| SIXEL                  | Depends on tmux build/version or application passthrough. Not verified for visual parity.                                                                                                                                                                                                                   |
+| iTerm inline images    | Requires application tmux passthrough; not verified for visual parity.                                                                                                                                                                                                                                      |
+| Kitty graphics         | The current xterm ImageAddon does not provide native Kitty graphics rendering, including in direct tabs.                                                                                                                                                                                                    |
+| nvim / htop            | Not available in the automated test environment; interactive validation remains manual.                                                                                                                                                                                                                     |
+| Codex / Claude Code    | General task persistence and modified-key transport are tested. Full application UI/restart scenarios remain manual. GaoGrid never runs resume commands.                                                                                                                                                    |
+| ssh                    | Process ownership/persistence follows the same tmux path. A connection can still fail independently; live remote-session validation remains manual.                                                                                                                                                         |
 
 `allow-passthrough` is enabled when tmux supports it. Terminal applications must
 use their tmux-aware passthrough mode for protocols tmux does not understand.
@@ -81,7 +83,9 @@ process identity on reattach, explicit destruction, resizing, and protocols abov
 It also renders five batches of 80 files and requires every row exactly once
 before and after screen transitions and reconnection. Direct and protected
 output tests withhold frontend acknowledgments, then verify ordered, lossless
-resumption of more than 12 MiB of text.
+resumption of more than 12 MiB of text. Additional tests cover native attach,
+automatic fallback, manual control refresh, version gating, chunked replay,
+global output pressure, and the persistent terminal settings contract.
 
 For release validation in a VS Code Extension Development Host:
 

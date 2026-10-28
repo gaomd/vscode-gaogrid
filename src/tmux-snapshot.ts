@@ -4,7 +4,7 @@
  * Each value is numeric or a tmux pane id, so `|` is an unambiguous separator.
  */
 export const TMUX_SNAPSHOT_FORMAT =
-  "#{pane_id}|#{pane_width}|#{pane_height}|#{alternate_on}|#{cursor_x}|#{cursor_y}|#{cursor_flag}|#{keypad_cursor_flag}|#{keypad_flag}|#{mouse_standard_flag}|#{mouse_button_flag}|#{mouse_all_flag}|#{mouse_utf8_flag}|#{mouse_sgr_flag}|#{bracket_paste_flag}|#{insert_flag}|#{wrap_flag}|#{origin_flag}|#{scroll_region_upper}|#{scroll_region_lower}|#{alternate_saved_x}|#{alternate_saved_y}";
+  "#{pane_id}|#{pane_width}|#{pane_height}|#{alternate_on}|#{cursor_x}|#{cursor_y}|#{cursor_flag}|#{keypad_cursor_flag}|#{keypad_flag}|#{mouse_standard_flag}|#{mouse_button_flag}|#{mouse_all_flag}|#{mouse_utf8_flag}|#{mouse_sgr_flag}|#{bracket_paste_flag}|#{insert_flag}|#{wrap_flag}|#{origin_flag}|#{scroll_region_upper}|#{scroll_region_lower}|#{alternate_saved_x}|#{alternate_saved_y}|#{cursor_shape}|#{cursor_colour}";
 
 /** Decode tmux capture-pane -C's octal escapes without changing other bytes. */
 export function decodeTmuxEscapes(value: Buffer): Buffer {
@@ -67,11 +67,13 @@ interface SnapshotInfo {
   scrollBottom: number;
   savedCursorX: number;
   savedCursorY: number;
+  cursorShape: string;
+  cursorColour: string;
 }
 
 function parseInfo(info: string): SnapshotInfo {
   const fields = info.split("|");
-  if (fields.length !== 22 || !/^%\d+$/.test(fields[0]))
+  if (fields.length !== 24 || !/^%\d+$/.test(fields[0]))
     throw new Error("Invalid tmux snapshot metadata.");
   const [
     paneId,
@@ -96,6 +98,8 @@ function parseInfo(info: string): SnapshotInfo {
     scrollBottom,
     savedCursorX,
     savedCursorY,
+    cursorShape,
+    cursorColour,
   ] = info.split("|");
   const number = (value: string | undefined, fallback: number) => {
     const parsed = Number(value);
@@ -134,6 +138,8 @@ function parseInfo(info: string): SnapshotInfo {
       0,
       Math.min(number(savedCursorY, 0), safeHeight - 1),
     ),
+    cursorShape: cursorShape || "",
+    cursorColour: cursorColour || "",
   };
 }
 
@@ -187,6 +193,18 @@ function setModes(info: SnapshotInfo): string {
   output += decMode(1005, info.mouseUtf8);
   output += decMode(1006, info.mouseSgr);
   output += decMode(2004, info.bracketedPaste);
+  const cursorShape: Record<string, number> = {
+    block: 2,
+    "blinking-block": 1,
+    underline: 4,
+    "blinking-underline": 3,
+    bar: 6,
+    "blinking-bar": 5,
+  };
+  const shape = cursorShape[info.cursorShape];
+  if (shape) output += `${csi}${shape} q`;
+  if (/^#[0-9a-f]{6}$/i.test(info.cursorColour))
+    output += `${esc}]12;${info.cursorColour}\x07`;
   const top = Math.max(0, Math.min(info.scrollTop, info.height - 1));
   const bottom = Math.max(top, Math.min(info.scrollBottom, info.height - 1));
   output += `${csi}${top + 1};${bottom + 1}r`;

@@ -1,4 +1,7 @@
-import type { WindowPresentation } from "../../terminal-protocol";
+import type {
+  TerminalPreferences,
+  WindowPresentation,
+} from "../../terminal-protocol";
 
 export interface WorkspaceActions {
   windowPresentation(): WindowPresentation;
@@ -10,7 +13,10 @@ export interface WorkspaceActions {
   focusPane(paneId: string): void;
   createTab(paneId: string): void;
   protectionAvailable(): boolean;
+  terminalPreferences(): TerminalPreferences;
+  updatePreferences(preferences: TerminalPreferences): void;
   protectTab(paneId: string, tabId: string): void;
+  retryProtectedTab(paneId: string, tabId: string): void;
   unprotectTab(paneId: string, tabId: string): void;
   activateTab(paneId: string, tabId: string): void;
   closeTab(paneId: string, tabId: string): void;

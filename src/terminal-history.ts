@@ -1,14 +1,19 @@
 import { Terminal, type ITerminalAddon } from "@xterm/headless";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
+import {
+  MAX_SNAPSHOT_LENGTH,
+  TERMINAL_HISTORY_LINES,
+} from "./terminal-constants";
 
 export interface OutputSnapshot {
   version: 1;
   cols: number;
   rows: number;
   data: string;
+  truncated?: boolean;
 }
-export const MAX_SNAPSHOT_LENGTH = 2_000_000;
+export { MAX_SNAPSHOT_LENGTH };
 
 /** Parse output into terminal cells, so recovery never replays protocol queries. */
 export class TerminalHistory {
@@ -21,7 +26,7 @@ export class TerminalHistory {
     this.terminal = new Terminal({
       cols,
       rows,
-      scrollback: 10000,
+      scrollback: TERMINAL_HISTORY_LINES,
       allowProposedApi: true,
     });
     this.terminal.loadAddon(new Unicode11Addon() as unknown as ITerminalAddon);
@@ -76,8 +81,9 @@ export class TerminalHistory {
     });
   }
   private serialize(live: boolean): OutputSnapshot {
-    let scrollback = 10000;
+    let scrollback = TERMINAL_HISTORY_LINES;
     let data: string;
+    let truncated = false;
     do {
       data = this.serializer.serialize({
         scrollback,
@@ -86,6 +92,7 @@ export class TerminalHistory {
       });
       if (data.length <= MAX_SNAPSHOT_LENGTH || !scrollback) break;
       scrollback = Math.floor(scrollback / 2);
+      truncated = true;
     } while (true);
     if (!live && this.terminal.buffer.active.type === "alternate") {
       // Preserve the last application screen as history, without restoring its
@@ -109,6 +116,7 @@ export class TerminalHistory {
       cols: this.terminal.cols,
       rows: this.terminal.rows,
       data,
+      ...(truncated ? { truncated: true } : {}),
     };
   }
   dispose() {

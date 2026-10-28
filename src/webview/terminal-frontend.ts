@@ -9,12 +9,15 @@ import type { TerminalOutputPacket } from "../terminal-protocol";
 import { readTerminalOptions } from "./terminal-theme";
 import { installTerminalDrop } from "./terminal-drop";
 import { installTerminalInput } from "./terminal-input";
+import { TERMINAL_HISTORY_LINES } from "../terminal-constants";
+import type { MousePolicy, TerminalPreferences } from "../terminal-protocol";
 
 interface TerminalSurface {
   terminal: Terminal;
   fit: TerminalFitAddon;
   host: HTMLElement;
   sessionId: string;
+  transport?: "control" | "attach";
   opened: boolean;
   fontSizeOverride?: number;
   webgl?: WebglAddon;
@@ -42,6 +45,7 @@ export class TerminalFrontend {
   private frame?: number;
   private focusRequest = 0;
   private useWebgl = true;
+  private mousePolicy: MousePolicy = "application";
   private readonly resizeObserver = new ResizeObserver(() =>
     this.scheduleFit(),
   );
@@ -65,6 +69,7 @@ export class TerminalFrontend {
   mount(tab: TerminalTab, host: HTMLElement) {
     const existing = this.surfaces.get(tab.id);
     if (existing) {
+      existing.transport = tab.transport;
       if (existing.host !== host) {
         this.resizeObserver.unobserve(existing.host);
         existing.disposeDrop();
@@ -89,7 +94,7 @@ export class TerminalFrontend {
       ...this.pendingDimensions.get(tab.sessionId),
       cursorBlink: true,
       allowProposedApi: true,
-      scrollback: 10000,
+      scrollback: TERMINAL_HISTORY_LINES,
       // Opaque glyph rasterization keeps text edges blended against the actual
       // terminal background. Inline images have their own transparent layer.
       allowTransparency: false,
@@ -122,11 +127,12 @@ export class TerminalFrontend {
     terminal.onResize(({ cols, rows }) =>
       this.send({ type: "resize", sessionId: tab.sessionId, cols, rows }),
     );
-    this.surfaces.set(tab.id, {
+    const surface: TerminalSurface = {
       terminal,
       fit,
       host,
       sessionId: tab.sessionId,
+      transport: tab.transport,
       opened: false,
       streamId: "",
       awaitingReplay: true,
@@ -134,7 +140,11 @@ export class TerminalFrontend {
       parsed: 0,
       disposeDrop: this.installDrop(host, terminal, tab.sessionId),
       disposeInput: installTerminalInput(terminal, host),
-    });
+    };
+    this.surfaces.set(tab.id, surface);
+    terminal.attachCustomWheelEventHandler((event) =>
+      this.handleWheel(surface, event),
+    );
     this.sessionTabs.set(tab.sessionId, tab.id);
     this.resizeObserver.observe(host);
     this.pendingDimensions.delete(tab.sessionId);
@@ -151,6 +161,11 @@ export class TerminalFrontend {
     }
     this.subscribe(this.surfaces.get(tab.id)!);
     this.scheduleFit();
+  }
+
+  updateTab(tab: TerminalTab) {
+    const surface = this.surfaces.get(tab.id);
+    if (surface) surface.transport = tab.transport;
   }
 
   write(sessionId: string, data: string) {
@@ -448,5 +463,26 @@ export class TerminalFrontend {
       terminal.options.minimumContrastRatio = options.minimumContrastRatio;
     }
     this.scheduleFit();
+  }
+
+  setPreferences(preferences: TerminalPreferences) {
+    this.mousePolicy = preferences.mousePolicy;
+  }
+
+  private handleWheel(surface: TerminalSurface, event: WheelEvent) {
+    if (
+      surface.transport === "attach" ||
+      this.mousePolicy === "exclusive" ||
+      surface.terminal.modes.mouseTrackingMode === "none"
+    )
+      return true;
+    if (this.mousePolicy !== "terminal" && !event.shiftKey) return true;
+    event.preventDefault();
+    const direction = event.deltaY < 0 ? -1 : 1;
+    if (surface.terminal.buffer.active.baseY > 0)
+      surface.terminal.scrollLines(direction * 3);
+    else if (surface.terminal.buffer.active.type === "alternate")
+      surface.terminal.input(direction < 0 ? "\x1b[A" : "\x1b[B", false);
+    return false;
   }
 }

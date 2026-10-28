@@ -166,7 +166,7 @@ button {
   padding: var(--gg-space);
   padding-block-end: 0;
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .workspace-rail__scroll {
@@ -190,16 +190,202 @@ button {
 }
 
 .workspace-rail__window,
-.workspace-rail__maximize {
+.workspace-rail__maximize,
+.workspace-rail__settings {
   width: 100%;
   height: auto;
   min-height: var(--gg-control-size);
   aspect-ratio: 1;
 }
 
+.workspace-rail__settings {
+  width: 24px;
+  height: 24px;
+  min-height: 24px;
+  border-radius: 5px;
+}
+
+.workspace-rail__settings .control__icon {
+  inline-size: 16px;
+  block-size: 16px;
+}
+
+.workspace-rail__settings[aria-expanded="true"] {
+  color: var(--vscode-toolbar-activeForeground, var(--gg-text));
+  background: var(--vscode-toolbar-activeBackground, var(--gg-active-surface));
+}
+
 .workspace-rail__window[hidden],
 .workspace-rail__maximize[hidden] {
   display: none;
+}
+
+.workspace-rail__footer {
+  position: relative;
+}
+
+.terminal-settings {
+  position: fixed;
+  z-index: 1000;
+  max-width: calc(100vw - 8px);
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 10px;
+  border: 1px solid
+    var(
+      --vscode-menu-border,
+      var(--vscode-widget-border, var(--vscode-contrastBorder, transparent))
+    );
+  border-radius: var(--gg-terminal-radius);
+  background: var(--vscode-menu-background, var(--gg-surface));
+  color: var(--vscode-menu-foreground, var(--gg-text));
+  box-shadow: 0 4px 16px var(--vscode-widget-shadow, transparent);
+}
+
+.terminal-settings[hidden],
+.terminal-settings__note[hidden] {
+  display: none;
+}
+
+.terminal-settings__group + .terminal-settings__group {
+  margin-block-start: 10px;
+}
+
+.terminal-settings__section-title {
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--gg-text);
+}
+
+.terminal-settings__heading {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--gg-space);
+  margin-block-end: 5px;
+}
+
+.terminal-settings h3,
+.terminal-settings__note {
+  margin: 0;
+  font-size: 11px;
+  font-weight: normal;
+  color: var(--vscode-descriptionForeground);
+}
+
+.terminal-settings__info {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  color: var(--gg-text-muted);
+  background: transparent;
+  cursor: help;
+}
+
+.terminal-settings__info .control__icon {
+  inline-size: 14px;
+  block-size: 14px;
+}
+
+.terminal-settings__info:hover,
+.terminal-settings__info:focus-visible {
+  color: var(--gg-text);
+  background: var(--gg-hover-surface);
+}
+
+.terminal-settings__info:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 1px;
+}
+
+.settings-tooltip {
+  position: fixed;
+  z-index: 2000;
+  width: max-content;
+  max-width: min(260px, calc(100vw - 8px));
+  padding: 6px 8px;
+  border: 1px solid
+    var(
+      --vscode-editorHoverWidget-border,
+      var(--vscode-widget-border, transparent)
+    );
+  border-radius: 3px;
+  color: var(--vscode-editorHoverWidget-foreground, var(--gg-text));
+  background: var(
+    --vscode-editorHoverWidget-background,
+    var(--vscode-editorWidget-background)
+  );
+  box-shadow: 0 2px 8px var(--vscode-widget-shadow, transparent);
+  font-size: 11px;
+  line-height: 16px;
+  text-align: left;
+  pointer-events: none;
+}
+
+.settings-tooltip[hidden] {
+  display: none;
+}
+
+.terminal-settings__options {
+  display: flex;
+  gap: var(--gg-space);
+}
+
+.terminal-settings__option {
+  appearance: none;
+  flex: 1 1 auto;
+  min-height: 24px;
+  margin: 0;
+  padding: 2px 8px;
+  border: 0;
+  border-radius: var(--gg-label-radius);
+  color: var(--gg-text);
+  background: var(--gg-label-surface);
+  font: inherit;
+  font-size: 11px;
+  line-height: 18px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.terminal-settings__option:hover:not(:disabled) {
+  background: var(--gg-hover-surface);
+}
+
+.terminal-settings__option[aria-pressed="true"] {
+  color: var(--gg-text-active);
+  background: var(--gg-active-surface);
+  box-shadow: inset 0 0 0 1px var(--gg-active-border);
+}
+
+.terminal-settings__option[aria-pressed="true"]:hover:not(:disabled) {
+  background: var(--gg-active-surface);
+}
+
+.terminal-settings__option:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 1px;
+}
+
+.terminal-settings__option:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.terminal-settings__note {
+  margin-block-start: 8px;
+  contain: inline-size;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .workspace-rail__list {
@@ -301,6 +487,15 @@ button {
 
 .terminal-tab [data-icon="shield"] {
   --gg-icon-size: 12px;
+}
+
+.terminal-tab[data-protection="degraded"] [data-icon="shield"] {
+  color: var(--vscode-editorWarning-foreground, #cca700);
+}
+
+.terminal-tab [data-icon="refresh"] {
+  --gg-icon-size: 12px;
+  color: var(--vscode-errorForeground, #f14c4c);
 }
 
 .drag-insertion-marker {

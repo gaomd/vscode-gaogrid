@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { TerminalHistory } from "../src/terminal-history";
 import {
   TerminalOutputFlow,
+  TerminalOutputBudget,
+  GLOBAL_OUTPUT_HIGH_WATERMARK,
   OUTPUT_HIGH_WATERMARK,
   OUTPUT_LOW_WATERMARK,
 } from "../src/terminal-output-flow";
@@ -13,6 +15,7 @@ const tick = () => new Promise<void>((resolve) => setImmediate(resolve));
 test("flow control bounds both parsers with high/low hysteresis and releases the PTY on disposal", () => {
   const transitions: string[] = [];
   const flow = new TerminalOutputFlow(
+    "test",
     () => transitions.push("pause"),
     () => transitions.push("resume"),
   );
@@ -37,9 +40,21 @@ test("flow control bounds both parsers with high/low hysteresis and releases the
   assert.deepEqual(transitions, ["pause", "resume", "pause", "resume"]);
 });
 
+test("global output pressure pauses background terminals before the visible one", () => {
+  const budget = new TerminalOutputBudget();
+  budget.setPending("background", GLOBAL_OUTPUT_HIGH_WATERMARK);
+  budget.setPending("visible", 1);
+  budget.setForeground("visible");
+  assert.equal(budget.shouldPause("background"), true);
+  assert.equal(budget.shouldPause("visible"), false);
+  budget.remove("background");
+  assert.equal(budget.pressure(), "none");
+});
+
 test("a promotion hold blocks reads until history is replaced and both parser credits are low", () => {
   const transitions: string[] = [];
   const flow = new TerminalOutputFlow(
+    "promotion",
     () => transitions.push("pause"),
     () => transitions.push("resume"),
   );
@@ -56,7 +71,7 @@ test("a promotion hold blocks reads until history is replaced and both parser cr
   flow.dispose();
 });
 
-test("unmounted output stays in parsed history; subscription sends one snapshot and then ordered live data", async (t) => {
+test("unmounted output stays in parsed history; subscription chunks one snapshot and then sends ordered live data", async (t) => {
   const history = new TerminalHistory(80, 24);
   t.after(() => history.dispose());
   const messages: any[] = [];
@@ -83,14 +98,22 @@ test("unmounted output stays in parsed history; subscription sends one snapshot 
   await history.snapshot();
   await tick();
   assert.equal(messages[0].type, "replay");
-  assert.match(messages[0].data, /SAVED 🐍📦/);
-  assert.ok(!messages[0].data.includes("AFTER"));
-  assert.deepEqual(
-    messages.slice(1).map((message) => message.data),
-    ["AFTER\r\n"],
+  assert.ok(messages.length > 2, "large replay is delivered in chunks");
+  assert.ok(
+    messages.slice(0, -1).every((message) => message.data.length <= 256 * 1024),
   );
-  assert.equal(messages[1].sequence, messages[0].sequence + "AFTER\r\n".length);
-  streams.acknowledge("tab", "generation-1", messages[1].sequence);
+  const replay = messages
+    .slice(0, -1)
+    .map((message) => message.data)
+    .join("");
+  assert.match(replay, /SAVED 🐍📦/);
+  assert.ok(!replay.includes("AFTER"));
+  assert.equal(messages.at(-1).data, "AFTER\r\n");
+  assert.equal(
+    messages.at(-1).sequence,
+    messages.at(-2).sequence + "AFTER\r\n".length,
+  );
+  streams.acknowledge("tab", "generation-1", messages.at(-1).sequence);
   assert.equal(pending.at(-1), 0);
 });
 

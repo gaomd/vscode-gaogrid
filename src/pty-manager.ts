@@ -1,6 +1,5 @@
 import * as pty from "node-pty";
 import * as path from "path";
-import * as fs from "fs";
 import { quoteShellPaths } from "./shell-paths";
 import { CwdResolver, resolveCwd, validDirectory } from "./cwd-resolver";
 import {
@@ -12,11 +11,24 @@ import {
 import { hasActiveTask } from "./task-detector";
 import { OscCwdParser } from "./osc-cwd-parser";
 import { TerminalHistory, type OutputSnapshot } from "./terminal-history";
-import { TerminalOutputFlow } from "./terminal-output-flow";
+import {
+  TerminalOutputBudget,
+  TerminalOutputFlow,
+} from "./terminal-output-flow";
 import type { TerminalOutputStore } from "./terminal-output-store";
 import { TmuxBackend, type TmuxPane } from "./tmux-backend";
-import { TmuxControlProcess } from "./tmux-control";
-import type { TerminalMetadata, BackendOptions } from "./terminal-protocol";
+import { TmuxControlProcess, type TmuxControlOptions } from "./tmux-control";
+import type {
+  TerminalMetadata,
+  TerminalTransport,
+  BackendOptions,
+} from "./terminal-protocol";
+import {
+  OUTPUT_CHECKPOINT_INTERVAL_MS,
+  OUTPUT_HIGH_WATERMARK,
+  OUTPUT_LOW_WATERMARK,
+  DIAGNOSTIC_OUTPUT_CHARS,
+} from "./terminal-constants";
 
 type TerminalProcess = Pick<
   pty.IPty,
@@ -28,6 +40,7 @@ type Session = {
   cwd: CwdResolver;
   output: string;
   shell: string;
+  transport?: TerminalTransport;
   exited: boolean;
   inputRevision: number;
   deferredInput?: { data: string; binary: boolean }[];
@@ -43,6 +56,12 @@ interface PtyOptions {
   environment?: NodeJS.ProcessEnv;
   tmuxConfigPath?: string;
   outputStore?: TerminalOutputStore;
+  outputHighWatermark?: number;
+  outputLowWatermark?: number;
+  checkpointIntervalMs?: number;
+  tmuxMouse?: boolean;
+  tmuxBackend?: TmuxBackend;
+  controlProcessFactory?: (options: TmuxControlOptions) => TerminalProcess;
   log?(message: string): void;
 }
 
@@ -55,48 +74,46 @@ export class PtyManager {
   >();
   private readonly backends = new Map<string, TerminalMetadata>();
   private readonly recoveryOutput = new Map<string, string>();
+  private readonly truncationNotified = new Set<string>();
   private readonly initialOutput = new Map<string, string>();
   private readonly sizes = new Map<string, { cols: number; rows: number }>();
+  private readonly outputBudget = new TerminalOutputBudget();
   private stopping = false;
+  private tmuxMouse: boolean;
   readonly tmux: TmuxBackend;
   constructor(
     private readonly emit: (message: unknown) => void,
     private readonly options: PtyOptions,
   ) {
-    this.tmux = new TmuxBackend(
-      options.tmuxConfigPath || path.join(__dirname, "../resources/tmux.conf"),
-      options.environment,
-    );
-    this.ensureSpawnHelperExecutable();
+    this.tmux =
+      options.tmuxBackend ||
+      new TmuxBackend(
+        options.tmuxConfigPath ||
+          path.join(__dirname, "../resources/tmux.conf"),
+        options.environment,
+      );
+    this.tmuxMouse = options.tmuxMouse ?? true;
   }
-  private ensureSpawnHelperExecutable() {
-    if (process.platform === "win32") return;
-    try {
-      const packageRoot = path.dirname(
-        path.dirname(require.resolve("node-pty")),
-      );
-      const nativeDirs = [
-        path.join(packageRoot, "build", "Release"),
-        path.join(packageRoot, "build", "Debug"),
-        path.join(
-          packageRoot,
-          "prebuilds",
-          `${process.platform}-${process.arch}`,
-        ),
-      ];
-      const nativeDir = nativeDirs.find((dir) =>
-        fs.existsSync(path.join(dir, "pty.node")),
-      );
-      if (!nativeDir) return;
-      const helper = path.join(nativeDir, "spawn-helper");
-      const mode = fs.statSync(helper).mode;
-      if (!(mode & 0o111)) fs.chmodSync(helper, mode | 0o111);
-    } catch (error) {
-      this.emit({
-        type: "error",
-        message: `Could not prepare node-pty spawn helper: ${String(error)}`,
-      });
-    }
+
+  async setTmuxMouse(enabled: boolean) {
+    this.tmuxMouse = enabled;
+    await Promise.all(
+      [...this.backends.values()].map(async (metadata) => {
+        if (
+          metadata.backend !== "tmux" ||
+          !metadata.backendSessionId ||
+          metadata.transport !== "attach"
+        )
+          return;
+        try {
+          await this.tmux.configureMouse(metadata.backendSessionId, enabled);
+        } catch (error) {
+          this.options.log?.(
+            `Could not update tmux mouse for ${metadata.backendSessionId}: ${String(error)}`,
+          );
+        }
+      }),
+    );
   }
   async start(
     sessionId: string,
@@ -137,11 +154,22 @@ export class PtyManager {
       backend:
         previous?.backend === "tmux" ? "tmux" : backend.backend || "direct",
       backendSessionId: backend.backendSessionId || previous?.backendSessionId,
+      transport:
+        backend.transport ||
+        previous?.transport ||
+        (backend.backend === "tmux" ||
+        (previous?.backend === "tmux" && !backend.backend)
+          ? "control"
+          : undefined),
+      degraded: previous?.degraded,
       createdAt: backend.createdAt || previous?.createdAt || Date.now(),
       updatedAt: Date.now(),
       connectionState: "disconnected",
     };
     this.backends.set(sessionId, metadata);
+    let controlStarted = false;
+    let workingDirectory = metadata.cwd;
+    let size = this.sizes.get(sessionId) || { cols: 80, rows: 24 };
     try {
       let prefix = this.initialOutput.get(sessionId) || "";
       let pane;
@@ -165,20 +193,21 @@ export class PtyManager {
         }
       }
       if (metadata.backend === "tmux") {
-        if (!(await this.tmux.capabilities()).tmux.available)
+        const capabilities = (await this.tmux.capabilities()).tmux;
+        if (!capabilities.available || capabilities.supported === false)
           throw new Error(
-            "tmux is unavailable. Protected session metadata was retained; right-click the tab to retry.",
+            "tmux 3.2a or newer is required. Protected session metadata was retained; right-click the tab to retry.",
           );
         if (metadata.backendSessionId)
           pane = await this.tmux.inspect(metadata.backendSessionId);
       }
-      const workingDirectory = await resolveCwd([
+      workingDirectory = await resolveCwd([
         pane?.cwd,
         metadata.cwd,
         ...this.options.defaultDirectories(),
       ]);
       metadata.cwd = workingDirectory;
-      const size = this.sizes.get(sessionId) || { cols: 80, rows: 24 };
+      size = this.sizes.get(sessionId) || { cols: 80, rows: 24 };
       if (metadata.backend === "tmux") {
         if (!pane) {
           const missing = !!metadata.backendSessionId;
@@ -200,15 +229,27 @@ export class PtyManager {
           }
         }
         if (pane) await this.tmux.configure();
+        await this.tmux.configureMouse(
+          metadata.backendSessionId!,
+          metadata.transport === "attach" && this.tmuxMouse,
+        );
+        if (pane && metadata.transport === "attach")
+          prefix = await this.tmux.history(
+            metadata.backendSessionId!,
+            size.rows,
+          );
         // Persist a newly created session even if the attach client subsequently fails.
         this.emitMetadata(sessionId);
       } else if (recovering)
         prefix += `\r\n[GaoGrid] Previous Direct Session ended. A new shell was started in:\r\n${workingDirectory}\r\n\r\n`;
+      controlStarted =
+        metadata.backend === "tmux" && metadata.transport === "control";
       const session = this.spawnClient(
         sessionId,
         workingDirectory,
         shell,
         metadata.backendSessionId,
+        metadata.transport,
         prefix,
       );
       if (metadata.backend === "tmux")
@@ -224,7 +265,30 @@ export class PtyManager {
         this.emit({ type: "reset", sessionId });
       this.scheduleCheckpoint(sessionId, session);
     } catch (error) {
+      if (
+        controlStarted &&
+        metadata.backend === "tmux" &&
+        metadata.backendSessionId
+      ) {
+        try {
+          await this.startAttachFallback(
+            sessionId,
+            metadata,
+            workingDirectory,
+            shell,
+            size,
+          );
+          return;
+        } catch (fallbackError) {
+          this.emit({
+            type: "error",
+            sessionId,
+            message: String(fallbackError),
+          });
+        }
+      }
       metadata.connectionState = "disconnected";
+      metadata.displayState = "failed";
       this.emitMetadata(sessionId);
       const message = `[GaoGrid] ${String(error)}${metadata.backend === "tmux" ? " Right-click the tab to reconnect." : ""}`;
       this.recoveryOutput.set(sessionId, `\r\n${message}\r\n`);
@@ -232,11 +296,52 @@ export class PtyManager {
     }
   }
 
+  private async startAttachFallback(
+    sessionId: string,
+    metadata: TerminalMetadata,
+    cwd: string,
+    shell: string,
+    size: { cols: number; rows: number },
+  ) {
+    const id = metadata.backendSessionId!;
+    if (!(await this.tmux.inspect(id)))
+      throw new Error("Protected session is no longer available.");
+    await this.tmux.configureMouse(id, this.tmuxMouse);
+    const prefix = await this.tmux.history(id, size.rows);
+    const session = this.spawnClient(
+      sessionId,
+      cwd,
+      shell,
+      id,
+      "attach",
+      prefix,
+    );
+    try {
+      await this.waitForAttach(id, session);
+    } catch (error) {
+      if (!session.exited) session.process.kill();
+      session.history.dispose();
+      session.flow.dispose();
+      throw error;
+    }
+    this.sessions.set(sessionId, session);
+    metadata.transport = "attach";
+    metadata.degraded = true;
+    metadata.displayState = undefined;
+    metadata.connectionState = "connected";
+    metadata.updatedAt = Date.now();
+    this.recoveryOutput.delete(sessionId);
+    this.emitMetadata(sessionId);
+    this.emit({ type: "reset", sessionId });
+    this.scheduleCheckpoint(sessionId, session);
+  }
+
   private spawnClient(
     sessionId: string,
     cwd: string,
     shell: string,
     tmuxId?: string,
+    transport: TerminalTransport = "control",
     output = "",
   ): Session {
     const size = this.sizes.get(sessionId) || { cols: 80, rows: 24 };
@@ -248,26 +353,47 @@ export class PtyManager {
         (entry): entry is [string, string] => typeof entry[1] === "string",
       ),
     );
-    const proc: TerminalProcess = tmuxId
-      ? new TmuxControlProcess({
-          args: this.tmux.attachArgs(tmuxId),
-          target: this.tmux.controlTarget(tmuxId),
-          cwd,
-          env,
-          ...size,
-        })
-      : pty.spawn(shell, [], { name: "xterm-256color", ...size, cwd, env });
+    const controlOptions: TmuxControlOptions | undefined =
+      tmuxId && transport === "control"
+        ? {
+            args: this.tmux.controlArgs(tmuxId),
+            target: this.tmux.controlTarget(tmuxId),
+            cwd,
+            env,
+            ...size,
+          }
+        : undefined;
+    const proc: TerminalProcess = controlOptions
+      ? (this.options.controlProcessFactory?.(controlOptions) ??
+        new TmuxControlProcess(controlOptions))
+      : pty.spawn(
+          tmuxId ? "tmux" : shell,
+          tmuxId ? this.tmux.attachArgs(tmuxId) : [],
+          {
+            name: "xterm-256color",
+            ...size,
+            cwd,
+            env,
+          },
+        );
     const session: Session = {
       process: proc,
       cwd: new CwdResolver(cwd),
       output,
       shell,
+      transport: tmuxId ? transport : undefined,
       exited: false,
       inputRevision: 0,
       history: new TerminalHistory(size.cols, size.rows),
       flow: new TerminalOutputFlow(
+        sessionId,
         () => proc.pause(),
         () => proc.resume(),
+        this.outputBudget,
+        {
+          high: this.options.outputHighWatermark || OUTPUT_HIGH_WATERMARK,
+          low: this.options.outputLowWatermark || OUTPUT_LOW_WATERMARK,
+        },
       ),
     };
     session.flow.queued(output.length);
@@ -282,7 +408,7 @@ export class PtyManager {
     });
     proc.onData((data) => {
       cwdParser.write(data);
-      session.output = (session.output + data).slice(-2_000_000);
+      session.output = (session.output + data).slice(-DIAGNOSTIC_OUTPUT_CHARS);
       const publish = current();
       session.flow.queued(data.length);
       session.history.write(data, () => {
@@ -360,6 +486,7 @@ export class PtyManager {
     this.sessions.delete(sessionId);
     this.backends.delete(sessionId);
     this.recoveryOutput.delete(sessionId);
+    this.truncationNotified.delete(sessionId);
     this.initialOutput.delete(sessionId);
     this.sizes.delete(sessionId);
     try {
@@ -385,13 +512,15 @@ export class PtyManager {
         this.scheduleCheckpoint(sessionId, session);
       }
     });
-    session.output = (session.output + `\r\n${message}\r\n`).slice(-2_000_000);
+    session.output = (session.output + `\r\n${message}\r\n`).slice(
+      -DIAGNOSTIC_OUTPUT_CHARS,
+    );
   }
 
   private async waitForAttach(id: string, session: Session) {
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      const deadline = Date.now() + 2500;
+      const deadline = Date.now() + 30_000;
       if (session.process.ready)
         await Promise.race([
           session.process.ready,
@@ -401,7 +530,7 @@ export class PtyManager {
                 reject(
                   new Error("Protected terminal initialization timed out."),
                 ),
-              2500,
+              30_000,
             );
           }),
         ]);
@@ -420,10 +549,13 @@ export class PtyManager {
     }
   }
 
-  promote(sessionId: string): Promise<TerminalMetadata | undefined> {
+  promote(
+    sessionId: string,
+    transport: TerminalTransport = "control",
+  ): Promise<TerminalMetadata | undefined> {
     const pending = this.promoting.get(sessionId);
     if (pending) return pending;
-    const promotion = this.promoteIdle(sessionId);
+    const promotion = this.promoteIdle(sessionId, transport);
     this.promoting.set(sessionId, promotion);
     void promotion
       .finally(() => this.promoting.delete(sessionId))
@@ -447,14 +579,16 @@ export class PtyManager {
 
   private async promoteIdle(
     sessionId: string,
+    transport: TerminalTransport,
   ): Promise<TerminalMetadata | undefined> {
     await this.starting.get(sessionId);
     if (this.backends.get(sessionId)?.backend === "tmux")
       return this.metadata(sessionId);
     const original = this.sessions.get(sessionId);
     if (!original || original.closing || !(await this.idle(original))) return;
-    if (!(await this.tmux.capabilities()).tmux.available)
-      throw new Error("tmux is unavailable.");
+    const capabilities = (await this.tmux.capabilities()).tmux;
+    if (!capabilities.available || capabilities.supported === false)
+      throw new Error("tmux 3.2a or newer is required.");
     const revision = original.inputRevision;
     const cwd = (await this.cwd(sessionId)) || original.cwd.cwd;
     const size = this.sizes.get(sessionId) || { cols: 80, rows: 24 };
@@ -463,7 +597,13 @@ export class PtyManager {
     let switched = false;
     try {
       id = await this.tmux.create(cwd, original.shell, size.cols, size.rows);
-      candidate = this.spawnClient(sessionId, cwd, original.shell, id);
+      candidate = this.spawnClient(
+        sessionId,
+        cwd,
+        original.shell,
+        id,
+        transport,
+      );
       await this.waitForAttach(id, candidate);
       // Buffer keystrokes during the final check; never lose input or migrate a task.
       original.deferredInput = [];
@@ -497,6 +637,7 @@ export class PtyManager {
         profile: original.shell,
         backend: "tmux",
         backendSessionId: id,
+        transport,
         createdAt: Date.now(),
         updatedAt: Date.now(),
         connectionState: "connected",
@@ -504,7 +645,9 @@ export class PtyManager {
       switched = true;
       const currentSize = this.sizes.get(sessionId) || size;
       this.resize(sessionId, currentSize.cols, currentSize.rows);
-      candidate.output = (original.output + candidate.output).slice(-2_000_000);
+      candidate.output = (original.output + candidate.output).slice(
+        -DIAGNOSTIC_OUTPUT_CHARS,
+      );
       this.emitMetadata(sessionId);
       this.emit({ type: "reset", sessionId });
       original.flow.setViewPending(0);
@@ -541,6 +684,9 @@ export class PtyManager {
     if (!Number.isSafeInteger(length) || length < 0) return;
     this.sessions.get(sessionId)?.flow.setViewPending(length);
   }
+  setForeground(sessionId?: string) {
+    this.outputBudget.setForeground(sessionId);
+  }
   quotePaths(sessionId: string, paths: string[]) {
     const shell = this.metadata(sessionId)?.profile;
     return shell ? quoteShellPaths(paths, shell) : undefined;
@@ -569,7 +715,17 @@ export class PtyManager {
       consume?.(snapshot);
       return snapshot;
     }
-    return session.history.snapshot(consume, true);
+    const snapshot = await session.history.snapshot(consume, true);
+    if (snapshot.truncated && !this.truncationNotified.has(sessionId)) {
+      this.truncationNotified.add(sessionId);
+      this.emit({
+        type: "notice",
+        sessionId,
+        message:
+          "Terminal history exceeded the snapshot limit; older lines were omitted.",
+      });
+    }
+    return snapshot;
   }
 
   private scheduleCheckpoint(sessionId: string, session: Session) {
@@ -584,7 +740,7 @@ export class PtyManager {
     session.checkpointTimer = setTimeout(() => {
       session.checkpointTimer = undefined;
       session.checkpoint = this.saveOutput(sessionId, session);
-    }, 500);
+    }, this.options.checkpointIntervalMs || OUTPUT_CHECKPOINT_INTERVAL_MS);
   }
 
   private async saveOutput(sessionId: string, session: Session) {
@@ -685,6 +841,73 @@ export class PtyManager {
     await Promise.all(sessionIds.map((id) => this.close(id, processes)));
   }
 
+  async reconnectDisplay(
+    sessionId: string,
+  ): Promise<TerminalMetadata | undefined> {
+    const metadata = this.backends.get(sessionId);
+    if (metadata?.backend !== "tmux" || !metadata.backendSessionId)
+      throw new Error("Terminal is not a protected session.");
+    await this.starting.get(sessionId);
+    await this.promoting.get(sessionId);
+    const previous = this.sessions.get(sessionId);
+    const size = this.sizes.get(sessionId) || { cols: 80, rows: 24 };
+    metadata.displayState = "refreshing";
+    this.emitMetadata(sessionId);
+    const transport: TerminalTransport = metadata.degraded
+      ? "control"
+      : metadata.transport || "control";
+    try {
+      if (!(await this.tmux.inspect(metadata.backendSessionId)))
+        throw new Error("Protected session is no longer available.");
+      await this.tmux.configureMouse(
+        metadata.backendSessionId,
+        transport === "attach" && this.tmuxMouse,
+      );
+      const cwd = metadata.cwd || previous?.cwd.cwd || "";
+      const prefix =
+        transport === "attach"
+          ? await this.tmux.history(metadata.backendSessionId, size.rows)
+          : "";
+      const candidate = this.spawnClient(
+        sessionId,
+        cwd,
+        metadata.profile,
+        metadata.backendSessionId,
+        transport,
+        prefix,
+      );
+      try {
+        await this.waitForAttach(metadata.backendSessionId, candidate);
+      } catch (error) {
+        if (!candidate.exited) candidate.process.kill();
+        candidate.history.dispose();
+        candidate.flow.dispose();
+        throw error;
+      }
+      this.sessions.set(sessionId, candidate);
+      metadata.transport = transport;
+      metadata.degraded = false;
+      metadata.displayState = undefined;
+      metadata.connectionState = "connected";
+      metadata.updatedAt = Date.now();
+      if (previous && previous !== candidate) {
+        if (!previous.exited) previous.process.kill();
+        previous.history.dispose();
+        previous.flow.dispose();
+      }
+      this.emitMetadata(sessionId);
+      this.emit({ type: "reset", sessionId });
+      return this.metadata(sessionId);
+    } catch (error) {
+      metadata.displayState = "failed";
+      metadata.connectionState =
+        previous && !previous.exited ? "connected" : "disconnected";
+      this.emitMetadata(sessionId);
+      this.emit({ type: "error", sessionId, message: String(error) });
+      return this.metadata(sessionId);
+    }
+  }
+
   /** Explicitly destroys a protected session and replaces it with a fresh direct shell. */
   async unprotect(sessionId: string): Promise<TerminalMetadata | undefined> {
     const metadata = this.backends.get(sessionId);
@@ -751,6 +974,7 @@ export class PtyManager {
       this.sessions.delete(sessionId);
       this.backends.delete(sessionId);
       this.recoveryOutput.delete(sessionId);
+      this.truncationNotified.delete(sessionId);
       this.sizes.delete(sessionId);
     })();
     if (session) session.closing = closing;

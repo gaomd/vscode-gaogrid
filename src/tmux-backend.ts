@@ -2,6 +2,7 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 import { randomUUID } from "crypto";
 import type { BackendCapabilities } from "./terminal-protocol";
+import { TERMINAL_HISTORY_LINES } from "./terminal-constants";
 
 const exec = promisify(execFile);
 const OWNER = "gaogrid-v1";
@@ -38,19 +39,23 @@ export class TmuxBackend {
       timeout: 1500,
     })
       .then(({ stdout }) => ({
-        tmux: { available: true, version: stdout.trim() },
+        tmux: {
+          available: true,
+          supported: supportedTmuxVersion(stdout),
+          version: stdout.trim(),
+        },
       }))
       .catch(() => ({ tmux: { available: false } })));
   }
   private args(args: string[]) {
     return ["-L", "gaogrid", "-f", this.configPath, ...args];
   }
-  private async run(args: string[]) {
+  private async run(args: string[], timeout = 3000) {
     try {
       const { stdout } = await exec("tmux", this.args(args), {
         env: this.environment,
-        timeout: 3000,
-        maxBuffer: 8 * 1024 * 1024,
+        timeout,
+        maxBuffer: 64 * 1024 * 1024,
       });
       return stdout;
     } catch (error) {
@@ -125,7 +130,20 @@ export class TmuxBackend {
   async configure() {
     await this.run(["source-file", this.configPath]);
   }
+  async configureMouse(id: string, enabled: boolean) {
+    await this.run([
+      "set-option",
+      "-w",
+      "-t",
+      `${this.target(id)}:0`,
+      "mouse",
+      enabled ? "on" : "off",
+    ]);
+  }
   attachArgs(id: string) {
+    return this.args(["attach-session", "-t", this.target(id)]);
+  }
+  controlArgs(id: string) {
     return this.args(["-C", "attach-session", "-t", this.target(id)]);
   }
   controlTarget(id: string) {
@@ -148,31 +166,37 @@ export class TmuxBackend {
     ).trim();
     if (!size) return "";
     // Only history, excluding the visible screen that attach will redraw.
-    const output = await this.run([
-      "capture-pane",
-      "-p",
-      "-e",
-      "-t",
-      target,
-      "-S",
-      "-10000",
-      "-E",
-      "-1",
-    ]);
+    const output = await this.run(
+      [
+        "capture-pane",
+        "-p",
+        "-e",
+        "-t",
+        target,
+        "-S",
+        `-${TERMINAL_HISTORY_LINES}`,
+        "-E",
+        "-1",
+      ],
+      30_000,
+    );
     return output.replace(/\r?\n/g, "\r\n") + "\r\n".repeat(rows);
   }
   async capture(id: string) {
     if (!(await this.inspect(id)))
       throw new Error("Protected session is no longer available.");
-    const output = await this.run([
-      "capture-pane",
-      "-p",
-      "-e",
-      "-t",
-      `${this.target(id)}:0.0`,
-      "-S",
-      "-10000",
-    ]);
+    const output = await this.run(
+      [
+        "capture-pane",
+        "-p",
+        "-e",
+        "-t",
+        `${this.target(id)}:0.0`,
+        "-S",
+        `-${TERMINAL_HISTORY_LINES}`,
+      ],
+      30_000,
+    );
     return output.replace(/\r?\n/g, "\r\n");
   }
   async destroy(id: string) {
@@ -198,4 +222,17 @@ export class TmuxBackend {
     );
     return owned.filter((id): id is string => !!id);
   }
+}
+
+export function supportedTmuxVersion(version: string) {
+  const match = /(\d+)\.(\d+)([a-z]?)/i.exec(version);
+  if (!match) return false;
+  const major = Number(match[1]);
+  const minor = Number(match[2]);
+  const patch = match[3]?.toLowerCase() || "";
+  return (
+    major > 3 ||
+    (major === 3 && (minor > 2 || (minor === 2 && patch === "a"))) ||
+    false
+  );
 }

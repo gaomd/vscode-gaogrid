@@ -16,6 +16,8 @@ interface Subscription {
   acknowledged: number;
 }
 
+const REPLAY_CHUNK_SIZE = 256 * 1024;
+
 /** A snapshot barrier followed by ordered, acknowledged output for mounted tabs. */
 export class TerminalOutputStream {
   private readonly subscriptions = new Map<string, Subscription>();
@@ -47,14 +49,27 @@ export class TerminalOutputStream {
       const snapshot = await this.backend.replay(sessionId, (value) => {
         if (this.subscriptions.get(sessionId) !== subscription) return;
         subscription.ready = true;
-        this.send(
-          sessionId,
-          subscription,
-          "replay",
-          value.data,
-          value.cols,
-          value.rows,
-        );
+        const chunks = chunkData(value.data);
+        if (!chunks.length)
+          this.send(
+            sessionId,
+            subscription,
+            "replay",
+            "",
+            value.cols,
+            value.rows,
+          );
+        else
+          chunks.forEach((chunk, index) =>
+            this.send(
+              sessionId,
+              subscription,
+              index ? "data" : "replay",
+              chunk,
+              index ? undefined : value.cols,
+              index ? undefined : value.rows,
+            ),
+          );
       });
       if (!snapshot && this.subscriptions.get(sessionId) === subscription) {
         subscription.ready = true;
@@ -79,7 +94,9 @@ export class TerminalOutputStream {
 
   write(sessionId: string, data: string) {
     const subscription = this.subscriptions.get(sessionId);
-    if (subscription?.ready) this.send(sessionId, subscription, "data", data);
+    if (subscription?.ready)
+      for (const chunk of chunkData(data))
+        this.send(sessionId, subscription, "data", chunk);
   }
 
   acknowledge(sessionId: string, streamId: string, sequence: number) {
@@ -148,4 +165,20 @@ export class TerminalOutputStream {
         },
       );
   }
+}
+
+function chunkData(data: string) {
+  const chunks: string[] = [];
+  let offset = 0;
+  while (offset < data.length) {
+    let end = Math.min(data.length, offset + REPLAY_CHUNK_SIZE);
+    if (end < data.length && isHighSurrogate(data.charCodeAt(end - 1))) end--;
+    chunks.push(data.slice(offset, end));
+    offset = end;
+  }
+  return chunks;
+}
+
+function isHighSurrogate(code: number) {
+  return code >= 0xd800 && code <= 0xdbff;
 }

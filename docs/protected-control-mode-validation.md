@@ -11,7 +11,7 @@ owned pane as literal bytes. Direct terminals continue to use node-pty.
 
 ## Automated checks
 
-The final isolated suite run recorded 150 passing tests, zero unexpected
+The final isolated suite run recorded 159 passing tests, zero unexpected
 failures, and one executable TODO for the UTF-8 cold-attachment case below.
 
 - Five batches containing 400 distinct file names must render exactly once in
@@ -30,6 +30,9 @@ failures, and one executable TODO for the UTF-8 cold-attachment case below.
   measures application pending bytes, not tmux server queue memory.
 - Direct queries already answered by tmux produce one reply. A wrapped
   passthrough query still reaches xterm and produces its own reply.
+- Native attach selection, explicit transport persistence, automatic fallback,
+  manual control refresh, tmux 3.2a gating, and libghostty-style mouse routing
+  have focused regression coverage.
 
 ## Browser comparison
 
@@ -62,14 +65,15 @@ and window reload. Restart the Extension Host and confirm process identity and
 visible state. Application-specific selection, clipboard, graphics and complex
 terminal-state restoration still require interactive validation before release.
 
-Recovery restores the displayed cells and the explicitly captured mode fields.
-Custom cursor-shape commands and dynamic OSC palette/default-color changes are
-not included in that snapshot; applications may need to repaint those settings
-after reattachment.
+Recovery restores the displayed cells and the explicitly captured mode fields,
+including cursor shape and a hexadecimal cursor colour when tmux exposes them.
+Dynamic OSC palette/default-color changes are not included in that snapshot;
+applications may need to repaint those settings after reattachment.
 
 An executable TODO records the cold-attach case where an application pauses
 halfway through a UTF-8 character before the new client connects. The control
 stream can supply only the remaining byte, while `capture-pane -P` exposes no
 prefix for that character. The current adapter can render a replacement
-character in this case. This remains a release blocker for the prototype;
-normal split UTF-8 within an existing control stream is covered and passes.
+character in this case. After output settles, the user can activate the tab
+shield or refresh indicator to read the authoritative tmux screen again. Normal
+split UTF-8 within an existing control stream is covered and passes.

@@ -7,6 +7,7 @@ const manager = new PtyManager(() => {}, {
   defaultDirectories: () => [root],
   environment: { ...process.env, HOME: root },
   outputStore: new TerminalOutputStore(join(root, "storage")),
+  checkpointIntervalMs: 500,
 });
 void manager
   .start("crash", root)

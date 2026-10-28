@@ -46,6 +46,10 @@ Next steps:
 - [ ] **[AI agent notifications](docs/terminal-notifications.md):** Plan notifications when agents finish or need
       input, with attention indicators for the relevant workspace and pane,
       similar to cmux and herdr.
+- [ ] **OSC 52 clipboard writes:** Support terminal-mediated clipboard writes
+      for remote applications and tmux copy-mode, with explicit permission and
+      size limits. Codex's built-in selection and copy path already works
+      independently.
 
 ## License
 

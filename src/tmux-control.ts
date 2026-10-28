@@ -3,10 +3,15 @@ import { constants as osConstants } from "os";
 import { StringDecoder } from "string_decoder";
 import { TmuxOutputFilter } from "./tmux-output-filter";
 import {
+  TmuxControlProtocol,
+  type TmuxControlBlock,
+} from "./tmux-control-protocol";
+import {
   TMUX_SNAPSHOT_FORMAT,
   decodeTmuxEscapes,
   renderTmuxSnapshot,
 } from "./tmux-snapshot";
+import { TERMINAL_HISTORY_LINES } from "./terminal-constants";
 
 export interface TmuxControlOptions {
   args: string[];
@@ -21,7 +26,6 @@ type Exit = { exitCode: number; signal?: number };
 type Listener<T> = (value: T) => void;
 const quote = (value: string) => `'${value.replace(/'/g, "'\\''")}'`;
 const SNAPSHOT_BLOCKS = 5; // refresh-client, metadata, saved, pending, active capture
-const MAX_CONTROL_LINE_BYTES = 16 * 1024 * 1024;
 const READY_TIMEOUT_MS = 30_000;
 
 /** A tmux control-mode client that turns %output records into terminal bytes. */
@@ -31,8 +35,7 @@ export class TmuxControlProcess {
   private readonly child: ChildProcessWithoutNullStreams;
   private readonly paneDecoder = new StringDecoder("utf8");
   private readonly outputFilter = new TmuxOutputFilter();
-  private lineBuffer = Buffer.alloc(0);
-  private block?: { id: string; lines: Buffer[]; responseIndex: number };
+  private readonly protocol: TmuxControlProtocol;
   private completedBlocks = 0;
   private info = "";
   private paneId = "";
@@ -60,6 +63,11 @@ export class TmuxControlProcess {
     });
     this.readyTimer = setTimeout(() => this.fail(), READY_TIMEOUT_MS);
     this.readyTimer.unref();
+    this.protocol = new TmuxControlProtocol(
+      () => (this.attached ? this.completedBlocks : -1),
+      (block) => this.completeControlBlock(block),
+      (paneId, bytes) => this.handleOutput(paneId, bytes),
+    );
     this.child = spawn("tmux", options.args, {
       cwd: options.cwd,
       env: options.env,
@@ -68,7 +76,7 @@ export class TmuxControlProcess {
     this.pid = this.child.pid ?? 0;
     this.child.stdout.on("data", (chunk: Buffer) => {
       try {
-        this.consume(chunk);
+        this.protocol.write(chunk);
       } catch {
         // Invalid protocol or snapshot data must not escape an EventEmitter
         // callback. Keep implementation details and payload data out of errors.
@@ -106,11 +114,11 @@ export class TmuxControlProcess {
     this.snapshotCommands = [
       `refresh-client -C ${Math.max(1, options.cols)}x${Math.max(1, options.rows)}`,
       `display-message -p -t ${target} ${quote(TMUX_SNAPSHOT_FORMAT)}`,
-      `capture-pane -p -e -C -a -q -t ${target} -S -10000`,
+      `capture-pane -p -e -C -a -q -t ${target} -S -${TERMINAL_HISTORY_LINES}`,
       `capture-pane -p -C -P -t ${target}`,
       // Capture the active pane last so notifications from before this command
       // are reflected in the snapshot at the final ordered boundary.
-      `capture-pane -p -e -C -t ${target} -S -10000`,
+      `capture-pane -p -e -C -t ${target} -S -${TERMINAL_HISTORY_LINES}`,
     ].join("; ");
   }
 
@@ -152,81 +160,24 @@ export class TmuxControlProcess {
     else this.child.kill();
   }
 
-  private consume(chunk: Buffer) {
-    this.lineBuffer = Buffer.concat([this.lineBuffer, chunk]);
-    let newline: number;
-    while ((newline = this.lineBuffer.indexOf(0x0a)) !== -1) {
-      let line = this.lineBuffer.subarray(0, newline);
-      if (line.length && line[line.length - 1] === 0x0d)
-        line = line.subarray(0, line.length - 1);
-      this.lineBuffer = this.lineBuffer.subarray(newline + 1);
-      if (line.length > MAX_CONTROL_LINE_BYTES) {
-        this.fail();
-        return;
-      }
-      this.record(line);
+  private completeControlBlock(block: TmuxControlBlock) {
+    if (block.error) {
+      if (!this.snapshotDone) this.fail();
+      return;
     }
-    if (this.lineBuffer.length > MAX_CONTROL_LINE_BYTES) this.fail();
+    this.completeBlock(block.lines);
   }
-  private record(bytes: Buffer) {
-    if (this.failed) return;
-    const line = bytes.toString("utf8");
-    const marker = /^(%begin|%end|%error) (\d+) (\d+) (\d+)(?:\s|$)/.exec(line);
-    if (line.startsWith("%begin")) {
-      if (this.block) {
-        // Capture response rows are user pane data and may resemble control
-        // markers. Refresh and metadata responses cannot contain pane rows.
-        if (this.block.responseIndex >= 2) this.block.lines.push(bytes);
-        else this.fail();
-      } else if (marker?.[1] === "%begin") {
-        this.block = {
-          id: `${marker[2]} ${marker[3]} ${marker[4]}`,
-          lines: [],
-          responseIndex: this.attached ? this.completedBlocks : -1,
-        };
-      } else this.fail();
-      return;
+  private handleOutput(paneId: string, encoded: Buffer) {
+    const paneBytes = decodeTmuxEscapes(encoded);
+    if (this.snapshotDone && paneId === this.paneId) {
+      const orderedBytes = this.pendingPrefix.length
+        ? Buffer.concat([this.pendingPrefix, paneBytes])
+        : paneBytes;
+      this.pendingPrefix = Buffer.alloc(0);
+      this.deliver(
+        this.outputFilter.write(this.paneDecoder.write(orderedBytes)),
+      );
     }
-    const markerId = marker && `${marker[2]} ${marker[3]} ${marker[4]}`;
-    if (line.startsWith("%end") || line.startsWith("%error")) {
-      if (!marker || !this.block) {
-        this.fail();
-        return;
-      }
-      if (this.block.id !== markerId) {
-        if (this.block.responseIndex >= 2) this.block.lines.push(bytes);
-        else this.fail();
-        return;
-      }
-      const block = this.block;
-      this.block = undefined;
-      if (marker[1] === "%error") {
-        // Later input/resize errors are expected to be local to that command.
-        // Initial failures reject ready without exposing command response text.
-        if (!this.snapshotDone) this.fail();
-        return;
-      }
-      this.completeBlock(block.lines);
-      return;
-    }
-    const output = !this.block && /^%output (%\d+) /.exec(line);
-    if (output) {
-      const payloadOffset = Buffer.byteLength(output[0], "utf8");
-      const paneBytes = decodeTmuxEscapes(bytes.subarray(payloadOffset));
-      if (this.snapshotDone && output[1] === this.paneId) {
-        const orderedBytes = this.pendingPrefix.length
-          ? Buffer.concat([this.pendingPrefix, paneBytes])
-          : paneBytes;
-        this.pendingPrefix = Buffer.alloc(0);
-        this.deliver(
-          this.outputFilter.write(this.paneDecoder.write(orderedBytes)),
-        );
-      }
-      // Earlier %output records are represented by capture-pane in the batch.
-      return;
-    }
-    if (this.block) this.block.lines.push(bytes);
-    // Other notifications are protocol metadata, never terminal output.
   }
   private completeBlock(lines: Buffer[]) {
     if (!this.attached) {
