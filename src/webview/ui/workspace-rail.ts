@@ -232,10 +232,10 @@ export class WorkspaceRail {
     const footer = document.createElement("div");
     footer.className = "workspace-rail__footer";
     footer.append(
-      this.maximizeButton,
       this.settingsPanel,
       this.settingsButton,
       this.windowButton,
+      this.maximizeButton,
     );
     this.element.append(scroll, footer);
     this.element.addEventListener("dragover", (event) => {
