@@ -225,6 +225,10 @@ Normal and alternate-screen escape sequences reach xterm directly.
 than matching handwritten byte strings. It suppresses direct device-attribute,
 status, cursor-position, and default-color queries that tmux already answers.
 Queries inside tmux passthrough strings remain available to xterm.
+The webview supplies its default foreground and background at startup and on
+theme changes. Control clients report them with `refresh-client -r` on tmux
+3.5 and newer; older versions use pane styles. This keeps tmux's OSC 10/11
+answers consistent with the editor, so applications can choose matching colors.
 
 The controller serializes protection with existing creation and close mutations.
 Busy protection can create a separate tab in the original pane using the original

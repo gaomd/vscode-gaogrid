@@ -436,6 +436,7 @@ export function activate(context: vscode.ExtensionContext) {
       };
       switch (message.type) {
         case "ready":
+          manager.setDefaultColors(message.colors);
           const generation = ++viewGeneration;
           viewReady = false;
           outputStreams.clear();
@@ -662,6 +663,9 @@ export function activate(context: vscode.ExtensionContext) {
         }
         case "lifecycleError":
           void vscode.window.showErrorMessage(`GaoGrid: ${message.message}`);
+          break;
+        case "terminalColors":
+          manager.setDefaultColors(message.colors);
           break;
         case "input":
           manager.input(

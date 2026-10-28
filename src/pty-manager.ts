@@ -18,6 +18,10 @@ import {
 import type { TerminalOutputStore } from "./terminal-output-store";
 import { TmuxBackend, type TmuxPane } from "./tmux-backend";
 import { TmuxControlProcess, type TmuxControlOptions } from "./tmux-control";
+import {
+  normalizeTerminalColors,
+  type TerminalDefaultColors,
+} from "./terminal-colors";
 import type {
   TerminalMetadata,
   TerminalTransport,
@@ -33,7 +37,10 @@ import {
 type TerminalProcess = Pick<
   pty.IPty,
   "pid" | "onData" | "onExit" | "write" | "resize" | "pause" | "resume" | "kill"
-> & { readonly ready?: Promise<void> };
+> & {
+  readonly ready?: Promise<void>;
+  setDefaultColors?(colors: TerminalDefaultColors): void;
+};
 
 type Session = {
   process: TerminalProcess;
@@ -80,6 +87,7 @@ export class PtyManager {
   private readonly outputBudget = new TerminalOutputBudget();
   private stopping = false;
   private tmuxMouse: boolean;
+  private defaultColors?: TerminalDefaultColors;
   readonly tmux: TmuxBackend;
   constructor(
     private readonly emit: (message: unknown) => void,
@@ -114,6 +122,20 @@ export class PtyManager {
         }
       }),
     );
+  }
+  setDefaultColors(value: unknown) {
+    const colors = normalizeTerminalColors(value);
+    if (
+      !colors ||
+      (colors.foreground === this.defaultColors?.foreground &&
+        colors.background === this.defaultColors?.background)
+    )
+      return;
+    this.defaultColors = colors;
+    for (const session of this.sessions.values()) {
+      if (!session.exited && !session.closing)
+        session.process.setDefaultColors?.(colors);
+    }
   }
   async start(
     sessionId: string,
@@ -361,6 +383,8 @@ export class PtyManager {
             cwd,
             env,
             ...size,
+            defaultColors: this.defaultColors,
+            colorReports: this.tmux.supportsColorReports,
           }
         : undefined;
     const proc: TerminalProcess = controlOptions
@@ -534,6 +558,8 @@ export class PtyManager {
             );
           }),
         ]);
+      if (this.defaultColors)
+        session.process.setDefaultColors?.(this.defaultColors);
       while (!session.exited && Date.now() < deadline) {
         if (await this.tmux.attached(id, session.process.pid)) return;
         await new Promise((resolve) => setTimeout(resolve, 30));

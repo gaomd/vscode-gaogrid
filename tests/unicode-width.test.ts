@@ -130,6 +130,33 @@ test("frontend forwards binary mouse reports separately from UTF-8 input", (t) =
   ]);
 });
 
+test("frontend reports terminal theme colors for protected applications on theme changes", (t) => {
+  const f = frontend(t);
+  const css = new Map([
+    ["--vscode-editor-background", "#FFFAFA"],
+    ["--vscode-foreground", "rgb(48, 42, 43)"],
+  ]);
+  Object.defineProperty(globalThis, "getComputedStyle", {
+    configurable: true,
+    value: () => ({ getPropertyValue: (name: string) => css.get(name) || "" }),
+  });
+  f.view.applySettings();
+  assert.deepEqual(f.sent.at(-1), {
+    type: "terminalColors",
+    colors: { foreground: "#302a2b", background: "#fffafa" },
+  });
+  assert.equal(f.terminal.options.theme!.background, "#FFFAFA");
+
+  css.set("--vscode-terminal-background", "rgba(30, 30, 30, 1)");
+  css.set("--vscode-terminal-foreground", "#DDD");
+  f.view.applySettings();
+  assert.deepEqual(f.sent.at(-1), {
+    type: "terminalColors",
+    colors: { foreground: "#dddddd", background: "#1e1e1e" },
+  });
+  assert.equal(f.terminal.options.theme!.background, "rgba(30, 30, 30, 1)");
+});
+
 test("frontend ACKs only parsed output and ignores packets from a replaced stream", async (t) => {
   const f = frontend(t);
   const streamId = f.sent.find(

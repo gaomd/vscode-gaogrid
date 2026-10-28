@@ -12,6 +12,7 @@ import {
   renderTmuxSnapshot,
 } from "./tmux-snapshot";
 import { TERMINAL_HISTORY_LINES } from "./terminal-constants";
+import type { TerminalDefaultColors } from "./terminal-colors";
 
 export interface TmuxControlOptions {
   args: string[];
@@ -20,6 +21,8 @@ export interface TmuxControlOptions {
   env: NodeJS.ProcessEnv;
   cols: number;
   rows: number;
+  defaultColors?: TerminalDefaultColors;
+  colorReports?: boolean;
 }
 
 type Exit = { exitCode: number; signal?: number };
@@ -54,9 +57,13 @@ export class TmuxControlProcess {
   private readyReject!: (error: Error) => void;
   private readonly readyTimer: NodeJS.Timeout;
   private readonly target: string;
+  private defaultColors?: TerminalDefaultColors;
+  private readonly colorReports: boolean;
 
   constructor(options: TmuxControlOptions) {
     this.target = options.target;
+    this.defaultColors = options.defaultColors;
+    this.colorReports = options.colorReports ?? true;
     this.ready = new Promise<void>((resolve, reject) => {
       this.readyResolve = resolve;
       this.readyReject = reject;
@@ -149,6 +156,27 @@ export class TmuxControlProcess {
         `refresh-client -C ${Math.max(1, cols)}x${Math.max(1, rows)}\n`,
       );
   }
+  setDefaultColors(colors: TerminalDefaultColors) {
+    this.defaultColors = colors;
+    if (!this.snapshotDone || this.exited) return;
+    if (this.colorReports) {
+      for (const [command, color] of [
+        [10, colors.foreground],
+        [11, colors.background],
+      ] as const) {
+        const rgb = color.slice(1).match(/../g)!.join("/");
+        this.send(
+          `refresh-client -r ${quote(`${this.paneId}:\x1b]${command};rgb:${rgb}\x07`)}\n`,
+        );
+      }
+    } else {
+      // tmux before 3.5 has no control-client color reports. Pane defaults
+      // provide the same OSC 10/11 answers without injecting terminal input.
+      this.send(
+        `select-pane -t ${quote(this.target)} -P ${quote(`fg=${colors.foreground},bg=${colors.background}`)}\n`,
+      );
+    }
+  }
   pause() {
     this.child.stdout.pause();
   }
@@ -207,6 +235,7 @@ export class TmuxControlProcess {
       // post-snapshot stream; separate delivery would lose parser state when
       // the frontend rebuilds from parsed terminal cells.
       this.pendingPrefix = decodeTmuxEscapes(Buffer.concat(this.pending));
+      if (this.defaultColors) this.setDefaultColors(this.defaultColors);
       this.readyResolve();
     }
   }

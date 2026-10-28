@@ -11,6 +11,7 @@ import { installTerminalDrop } from "./terminal-drop";
 import { installTerminalInput } from "./terminal-input";
 import { TERMINAL_HISTORY_LINES } from "../terminal-constants";
 import type { MousePolicy, TerminalPreferences } from "../terminal-protocol";
+import { normalizeTerminalColors } from "../terminal-colors";
 
 interface TerminalSurface {
   terminal: Terminal;
@@ -452,6 +453,8 @@ export class TerminalFrontend {
         document.documentElement.style.setProperty(key, String(value));
     }
     const options = readTerminalOptions();
+    const colors = normalizeTerminalColors(options.theme);
+    if (colors) this.send({ type: "terminalColors", colors });
     for (const { terminal, fontSizeOverride } of this.surfaces.values()) {
       terminal.options.theme = options.theme;
       terminal.options.fontFamily = options.fontFamily;

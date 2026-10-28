@@ -919,6 +919,106 @@ test("tmux answers direct DSR once and xterm answers DCS passthrough DSR once", 
   );
 });
 
+for (const colorReports of [true, false]) {
+  test(`protected color queries follow the editor theme across startup, updates, and reconnect (${colorReports ? "client reports" : "legacy pane defaults"})`, async (t) => {
+    const h = await setup(t);
+    if (!h) return;
+    const manager = h.manager(
+      undefined,
+      undefined,
+      (options) => new TmuxControlProcess({ ...options, colorReports }),
+    );
+    await manager.tmux.capabilities();
+    if (colorReports && !manager.tmux.supportsColorReports) {
+      t.skip("control-client color reports require tmux 3.5 or newer");
+      return;
+    }
+    const inputFile = join(h.root, "color-input.bin");
+    const script = join(h.root, "color-receiver.js");
+    await writeFile(
+      script,
+      `
+      const fs = require('node:fs');
+      fs.writeFileSync(${JSON.stringify(inputFile)}, '');
+      process.stdin.setRawMode(true);
+      let barriers = 0;
+      const query = () => process.stdout.write('\\x1b]10;?\\x07\\x1b]11;?\\x07');
+      process.stdin.on('data', data => {
+        fs.appendFileSync(${JSON.stringify(inputFile)}, data);
+        for (const byte of data) {
+          if (byte === 5) query();
+          if (byte === 6) process.stdout.write('COLOR_BARRIER_' + (++barriers));
+        }
+      });
+      query();
+    `,
+    );
+    manager.setDefaultColors({ foreground: "#302a2b", background: "#fffafa" });
+    await manager.start("colors", h.root, undefined, false, {
+      backend: "tmux",
+    });
+    await until(
+      () => manager.output("colors")?.includes("TMUX_READY>") || false,
+    );
+    const terminal = new Terminal({ allowProposedApi: true });
+    t.after(() => terminal.dispose());
+    terminal.onData((data) => manager.input("colors", data));
+    let cursor = 0;
+    let barriers = 0;
+    let expectedReplies = "";
+    async function checkReplies(foreground: string, background: string) {
+      const report = (command: number, color: string) =>
+        `\x1b]${command};rgb:${color
+          .match(/../g)!
+          .map((channel) => channel + channel)
+          .join("/")}\x07`;
+      expectedReplies += report(10, foreground) + report(11, background);
+      await until(async () =>
+        (await readFile(inputFile, "utf8").catch(() => ""))
+          .replace(/[\x05\x06]/g, "")
+          .includes(expectedReplies),
+      );
+      cursor = await writeChunks(
+        terminal,
+        h.outputChunks.get("colors") || [],
+        cursor,
+      );
+      // Any incorrect xterm replies precede this barrier on the same input pipe.
+      manager.input("colors", "\x06");
+      await until(
+        () =>
+          manager.output("colors")?.includes(`COLOR_BARRIER_${barriers + 1}`) ||
+          false,
+      );
+      barriers++;
+      const actual = await readFile(inputFile, "utf8");
+      assert.equal(
+        actual.replace(/[\x05\x06]/g, ""),
+        expectedReplies,
+        "applications receive exactly one correct answer per query and no theme-setting bytes",
+      );
+    }
+    manager.input(
+      "colors",
+      `exec ${quote(process.execPath)} ${quote(script)}\r`,
+    );
+    await checkReplies("302a2b", "fffafa");
+    manager.setDefaultColors({ foreground: "#dddddd", background: "#1e1e1e" });
+    manager.input("colors", "\x05");
+    await checkReplies("dddddd", "1e1e1e");
+    // Reject protocol syntax from the webview before it can become a command.
+    manager.setDefaultColors({
+      foreground: "#dddddd",
+      background: "#ffffff'; display-message INJECTED",
+    });
+    await manager.reconnectDisplay("colors");
+    manager.input("colors", "\x05");
+    await checkReplies("dddddd", "1e1e1e");
+    assert.equal(manager.metadata("colors")?.transport, "control");
+    assert.deepEqual(h.errors, []);
+  });
+}
+
 test("protected terminal carries colors, Unicode, paste, application-requested mouse and modified Enter", async (t) => {
   const h = await setup(t);
   if (!h) return;

@@ -4,6 +4,8 @@ import { WorkspaceController } from "./workspace-controller";
 import { resolveShortcut } from "./shortcuts";
 import "./style.css";
 import type { LifecycleRequest, LifecycleResult } from "../terminal-protocol";
+import { normalizeTerminalColors } from "../terminal-colors";
+import { readTerminalOptions } from "./terminal-theme";
 
 declare function acquireVsCodeApi(): {
   postMessage(message: unknown): void;
@@ -146,4 +148,7 @@ document.addEventListener("focusout", () => {
     if (!document.hasFocus()) send({ type: "focus", focused: false });
   });
 });
-send({ type: "ready" });
+send({
+  type: "ready",
+  colors: normalizeTerminalColors(readTerminalOptions().theme),
+});

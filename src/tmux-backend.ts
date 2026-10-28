@@ -22,6 +22,7 @@ export interface TmuxPane {
 /** Only this server namespace and explicitly marked UUID sessions are ours. */
 export class TmuxBackend {
   private detected?: Promise<BackendCapabilities>;
+  supportsColorReports = false;
   readonly environment: NodeJS.ProcessEnv;
   constructor(
     private readonly configPath: string,
@@ -38,13 +39,19 @@ export class TmuxBackend {
       env: this.environment,
       timeout: 1500,
     })
-      .then(({ stdout }) => ({
-        tmux: {
-          available: true,
-          supported: supportedTmuxVersion(stdout),
-          version: stdout.trim(),
-        },
-      }))
+      .then(({ stdout }) => {
+        const version = /(\d+)\.(\d+)/.exec(stdout);
+        this.supportsColorReports =
+          !!version &&
+          (+version[1] > 3 || (+version[1] === 3 && +version[2] >= 5));
+        return {
+          tmux: {
+            available: true,
+            supported: supportedTmuxVersion(stdout),
+            version: stdout.trim(),
+          },
+        };
+      })
       .catch(() => ({ tmux: { available: false } })));
   }
   private args(args: string[]) {
