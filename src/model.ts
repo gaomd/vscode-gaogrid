@@ -32,6 +32,9 @@ export interface TerminalTab {
   createdAt?: number;
   updatedAt?: number;
   connectionState?: "connected" | "disconnected";
+  transport?: "control" | "attach";
+  degraded?: boolean;
+  displayState?: "refreshing" | "failed";
 }
 export interface PersistedState {
   workspaces: Workspace[];

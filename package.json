@@ -415,6 +415,39 @@
           "type": "string",
           "default": "",
           "description": "Shell executable used for new terminal sessions. Empty uses the platform default."
+        },
+        "gaogrid.defaultProtected": {
+          "type": "boolean",
+          "default": false,
+          "description": "Create new terminal tabs as tmux-protected sessions when tmux is available."
+        },
+        "gaogrid.transportMode": {
+          "type": "string",
+          "enum": [
+            "control",
+            "attach"
+          ],
+          "enumDescriptions": [
+            "Use tmux control mode for complete scrolling and terminal history.",
+            "Use a native tmux attach client and tmux's own mouse handling."
+          ],
+          "default": "control",
+          "description": "Transport used when creating new protected terminal sessions."
+        },
+        "gaogrid.mousePolicy": {
+          "type": "string",
+          "enum": [
+            "application",
+            "terminal",
+            "exclusive"
+          ],
+          "enumDescriptions": [
+            "Applications may request the mouse; Shift-wheel keeps terminal history available.",
+            "Keep mouse input in the terminal, even when applications request it.",
+            "Send all mouse input, including Shift modifiers, to applications."
+          ],
+          "default": "application",
+          "description": "Mouse routing for control-mode terminals. Attach mode uses tmux's native mouse behavior."
         }
       }
     }
@@ -428,9 +461,10 @@
     "watch": "node esbuild.js --watch",
     "package": "npx --yes @vscode/vsce@^4.0.0 package --baseContentUrl https://github.com/gaomd/vscode-gaogrid/blob/main/",
     "release": "npx --yes @vscode/vsce@^4.0.0 publish --baseContentUrl https://github.com/gaomd/vscode-gaogrid/blob/main/",
-    "vscode:prepublish": "npm run compile"
+    "vscode:prepublish": "node scripts/prepare-node-pty.js && npm run compile"
   },
   "dependencies": {
+    "@ansi-tools/parser": "^1.1.0",
     "@vscode/codicons": "^0.0.45",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-image": "^0.9.0",

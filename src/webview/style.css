@@ -166,7 +166,7 @@ button {
   padding: var(--gg-space);
   padding-block-end: 0;
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .workspace-rail__scroll {
@@ -190,7 +190,8 @@ button {
 }
 
 .workspace-rail__window,
-.workspace-rail__maximize {
+.workspace-rail__maximize,
+.workspace-rail__settings {
   width: 100%;
   height: auto;
   min-height: var(--gg-control-size);
@@ -200,6 +201,62 @@ button {
 .workspace-rail__window[hidden],
 .workspace-rail__maximize[hidden] {
   display: none;
+}
+
+.workspace-rail__footer {
+  position: relative;
+}
+
+.terminal-settings {
+  position: absolute;
+  right: calc(100% + var(--gg-space));
+  bottom: calc(100% + var(--gg-space));
+  z-index: 20;
+  width: 230px;
+  padding: 10px;
+  border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+  border-radius: 8px;
+  background: var(--vscode-editorWidget-background);
+  box-shadow: 0 6px 20px var(--vscode-widget-shadow);
+}
+
+.terminal-settings[hidden],
+.terminal-settings__note[hidden] {
+  display: none;
+}
+
+.terminal-settings__group + .terminal-settings__group {
+  margin-block-start: 10px;
+}
+
+.terminal-settings h3,
+.terminal-settings__note {
+  margin: 0 0 5px;
+  font-size: 11px;
+  font-weight: normal;
+  color: var(--vscode-descriptionForeground);
+}
+
+.terminal-settings__options {
+  display: flex;
+  gap: 2px;
+}
+
+.terminal-settings__option {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 4px 5px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.terminal-settings__option[aria-pressed="true"] {
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+}
+
+.terminal-settings__note {
+  margin-block-start: 8px;
 }
 
 .workspace-rail__list {
@@ -301,6 +358,15 @@ button {
 
 .terminal-tab [data-icon="shield"] {
   --gg-icon-size: 12px;
+}
+
+.terminal-tab[data-protection="degraded"] [data-icon="shield"] {
+  color: var(--vscode-editorWarning-foreground, #cca700);
+}
+
+.terminal-tab [data-icon="refresh"] {
+  --gg-icon-size: 12px;
+  color: var(--vscode-errorForeground, #f14c4c);
 }
 
 .drag-insertion-marker {

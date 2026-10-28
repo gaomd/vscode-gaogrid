@@ -81,6 +81,7 @@ function harness(initial = fixture()) {
   const requests: LifecycleRequest[] = [];
   const disposed: string[] = [];
   const sent: any[] = [];
+  const active: string[] = [];
   let protect: (
     request: LifecycleRequest,
   ) => Promise<LifecycleResult> = async () => false;
@@ -95,7 +96,8 @@ function harness(initial = fixture()) {
     } as unknown as TerminalFrontend,
     {
       send(message) {
-        sent.push(message);
+        if (message.type === "activeTerminal") active.push(message.sessionId);
+        else sent.push(message);
       },
       persist: (value) => {
         state = structuredClone(value);
@@ -127,6 +129,7 @@ function harness(initial = fixture()) {
     actions: actions!,
     requests,
     sent,
+    active,
     protection: (callback: typeof protect) => {
       protect = callback;
     },
@@ -1011,6 +1014,32 @@ test("the backend creation API accepts tmux directly without first creating a di
   assert.equal(
     getPanes(h.state().workspaces[0].root)[1].tabs.at(-1)?.backend,
     "tmux",
+  );
+});
+
+test("new terminal defaults apply protected attach mode only to newly created tabs", async () => {
+  const h = harness();
+  h.controller.setCapabilities({
+    tmux: { available: true, version: "tmux 3.8" },
+  });
+  h.controller.setPreferences({
+    defaultProtected: true,
+    transport: "attach",
+    mousePolicy: "application",
+  });
+  h.actions.createTab("a");
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const tabs = getPanes(h.state().workspaces[0].root)[0].tabs;
+  assert.equal(tabs.length, 3, JSON.stringify(h.requests));
+  const tab = tabs.at(-1)!;
+  assert.equal(tab.backend, "tmux");
+  assert.equal(tab.transport, "attach");
+  assert.equal(h.sent.at(-1).type, "start");
+  assert.equal(h.sent.at(-1).backend, "tmux");
+  assert.equal(h.sent.at(-1).transport, "attach");
+  assert.equal(
+    getPanes(h.state().workspaces[0].root)[0].tabs[0].backend,
+    "direct",
   );
 });
 

@@ -23,6 +23,9 @@ export class WorkspaceRail {
   private readonly add: HTMLButtonElement;
   private readonly windowButton: HTMLButtonElement;
   private readonly maximizeButton: HTMLButtonElement;
+  private readonly settingsButton: HTMLButtonElement;
+  private readonly settingsPanel: HTMLDivElement;
+  private updateSettingsControls = () => {};
 
   constructor(private readonly actions: WorkspaceActions) {
     this.element.className = "workspace-rail";
@@ -214,9 +217,22 @@ export class WorkspaceRail {
       onClick: () => actions.toggleSidebarSize(),
     });
     this.maximizeButton.hidden = true;
+    this.settingsButton = createControl({
+      label: "Terminal Settings",
+      icon: "settings",
+      className: "workspace-rail__settings",
+      onClick: () => this.toggleSettings(),
+    });
+    this.settingsButton.setAttribute("aria-expanded", "false");
+    this.settingsPanel = this.createSettingsPanel();
     const footer = document.createElement("div");
     footer.className = "workspace-rail__footer";
-    footer.append(this.windowButton, this.maximizeButton);
+    footer.append(
+      this.maximizeButton,
+      this.settingsPanel,
+      this.settingsButton,
+      this.windowButton,
+    );
     this.element.append(scroll, footer);
     this.element.addEventListener("dragover", (event) => {
       if (!isTabDrag(event.dataTransfer) || event.target !== this.element)
@@ -258,6 +274,8 @@ export class WorkspaceRail {
       ? "Maximize / Restore Sidebar · Attach to the sidebar to use this action"
       : "Maximize / Restore Sidebar · ⌘X";
     this.maximizeButton.setAttribute("aria-label", this.maximizeButton.title);
+    this.settingsButton.disabled = false;
+    this.updateSettingsControls();
     if (!this.windowButton.querySelector(`[data-icon="${icon}"]`))
       this.windowButton.replaceChildren(createIcon(icon));
     const ids = new Set(workspaces.map((workspace) => workspace.id));
@@ -340,5 +358,139 @@ export class WorkspaceRail {
     this.add.title = this.add.disabled
       ? "Workspace limit reached (9)"
       : "New Workspace · ⌘N";
+  }
+
+  private toggleSettings(force?: boolean) {
+    const visible = force === undefined ? this.settingsPanel.hidden : force;
+    this.settingsPanel.hidden = !visible;
+    this.settingsButton.setAttribute("aria-expanded", String(visible));
+    if (visible) {
+      this.updateSettingsControls();
+      this.settingsPanel
+        .querySelector<HTMLButtonElement>('button[aria-pressed="true"]')
+        ?.focus();
+    } else this.settingsButton.focus();
+  }
+
+  private createSettingsPanel() {
+    const panel = document.createElement("div");
+    panel.className = "terminal-settings";
+    panel.hidden = true;
+    panel.setAttribute("role", "dialog");
+    panel.setAttribute("aria-label", "New terminal settings");
+
+    const availability = document.createElement("p");
+    availability.className = "terminal-settings__note";
+    availability.hidden = true;
+    const protection = this.settingsGroup(
+      "Default new terminal",
+      [
+        ["Unprotected", false],
+        ["Protected", true],
+      ],
+      () => this.actions.terminalPreferences().defaultProtected,
+      (value) =>
+        this.actions.updatePreferences({
+          ...this.actions.terminalPreferences(),
+          defaultProtected: value,
+        }),
+    );
+    const transport = this.settingsGroup(
+      "Transport",
+      [
+        ["Control Mode", "control"],
+        ["Attach Mode", "attach"],
+      ] as const,
+      () => this.actions.terminalPreferences().transport,
+      (value) =>
+        this.actions.updatePreferences({
+          ...this.actions.terminalPreferences(),
+          transport: value,
+        }),
+    );
+    const mouse = this.settingsGroup(
+      "Mouse",
+      [
+        ["Application", "application"],
+        ["Terminal", "terminal"],
+        ["App Exclusive", "exclusive"],
+      ] as const,
+      () => this.actions.terminalPreferences().mousePolicy,
+      (value) =>
+        this.actions.updatePreferences({
+          ...this.actions.terminalPreferences(),
+          mousePolicy: value,
+        }),
+    );
+    const nativeMouse = document.createElement("p");
+    nativeMouse.className = "terminal-settings__note";
+    nativeMouse.textContent = "Mouse is managed by native tmux in Attach Mode.";
+    nativeMouse.hidden = true;
+    panel.append(
+      protection.element,
+      transport.element,
+      mouse.element,
+      nativeMouse,
+      availability,
+    );
+    this.updateSettingsControls = () => {
+      const available = this.actions.protectionAvailable();
+      availability.hidden = available;
+      availability.textContent = "tmux 3.2a or newer is required.";
+      protection.refresh(this.actions.terminalPreferences().defaultProtected);
+      transport.refresh(this.actions.terminalPreferences().transport);
+      mouse.refresh(this.actions.terminalPreferences().mousePolicy);
+      protection.buttons.forEach((button) => (button.disabled = !available));
+      transport.buttons.forEach((button) => (button.disabled = !available));
+      const attach =
+        available && this.actions.terminalPreferences().transport === "attach";
+      mouse.buttons.forEach(
+        (button) => (button.disabled = attach || !available),
+      );
+      nativeMouse.hidden = !attach;
+    };
+    return panel;
+  }
+
+  private settingsGroup<T>(
+    title: string,
+    options: readonly (readonly [string, T])[],
+    getValue: () => T,
+    setValue: (value: T) => void,
+  ) {
+    const group = document.createElement("section");
+    group.className = "terminal-settings__group";
+    const label = document.createElement("h3");
+    label.textContent = title;
+    const buttons = document.createElement("div");
+    buttons.className = "terminal-settings__options";
+    const controls = options.map(([text, value]) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "terminal-settings__option";
+      button.textContent = text;
+      button.setAttribute("aria-pressed", String(getValue() === value));
+      button.addEventListener("click", () => {
+        setValue(value);
+        controls.forEach((item) =>
+          item.setAttribute("aria-pressed", String(item === button)),
+        );
+      });
+      buttons.append(button);
+      return button;
+    });
+    group.append(label, buttons);
+    return {
+      element: group,
+      buttons: controls,
+      refresh(value: T) {
+        controls.forEach((item, index) =>
+          item.setAttribute(
+            "aria-pressed",
+            String(options[index][1] === value),
+          ),
+        );
+      },
+    };
   }
 }

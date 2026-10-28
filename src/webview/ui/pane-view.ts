@@ -272,6 +272,24 @@ export class PaneView {
             y: event.clientY,
           });
         });
+        button.addEventListener(
+          "click",
+          (event) => {
+            const target =
+              event.target instanceof Element ? event.target : undefined;
+            const current = this.node.tabs.find((item) => item.id === tab.id);
+            if (
+              current?.backend === "tmux" &&
+              (current.degraded || current.displayState === "failed") &&
+              target?.closest('[data-icon="shield"], [data-icon="refresh"]')
+            ) {
+              event.preventDefault();
+              event.stopImmediatePropagation();
+              this.actions.retryProtectedTab(this.node.id, tab.id);
+            }
+          },
+          true,
+        );
         button.addEventListener("dragstart", (event) => {
           clearAllDragIndicators();
           writeDraggedTab(event.dataTransfer, tab.id);
@@ -288,8 +306,25 @@ export class PaneView {
       const indicator = button.querySelector('[data-icon="shield"]');
       if (protectedTab && !indicator) button.append(createIcon("shield"));
       if (!protectedTab) indicator?.remove();
+      const refresh = button.querySelector('[data-icon="refresh"]');
+      if (
+        protectedTab &&
+        (tab.degraded || tab.displayState === "failed") &&
+        !refresh
+      )
+        button.append(createIcon("refresh"));
+      if (
+        (!protectedTab || (!tab.degraded && tab.displayState !== "failed")) &&
+        refresh
+      )
+        refresh.remove();
+      button.dataset.protection = tab.degraded
+        ? "degraded"
+        : protectedTab
+          ? "on"
+          : "off";
       button.title = protectedTab
-        ? `Protected Session\n\nThis terminal is backed by tmux and can survive VS Code restarts.${tab.connectionState === "disconnected" ? "\nDisconnected. Right-click to reconnect." : ""}`
+        ? `Protected Session\n\n${tab.transport === "attach" ? "Native Attach Mode" : "Control Mode"}.${tab.degraded ? "\nProtection degraded to native tmux attach. History uses the tmux copy-mode buffer, and mouse input is managed by tmux. Click the shield to retry Control Mode." : ""}${tab.displayState === "failed" ? "\nDisplay refresh failed. Click refresh to retry." : ""}${tab.connectionState === "disconnected" ? "\nDisconnected. Right-click to reconnect." : ""}`
         : `Terminal ${index + 1} · ⌘${index + 1} · Double-click to close`;
       button.id = `tab-${tab.id}`;
       button.setAttribute(
@@ -334,7 +369,7 @@ export class PaneView {
         this.mounts.set(tab.id, mount);
         this.surface.append(mount);
         this.terminals.mount(tab, mount);
-      }
+      } else this.terminals.updateTab(tab);
       mount.hidden = !selected;
       return button;
     });

@@ -32,6 +32,8 @@ const info = (fields: Partial<Record<string, string>> = {}) => {
     "2",
     "2",
     "1",
+    "",
+    "",
   ];
   const names = [
     "pane_id",
@@ -56,6 +58,8 @@ const info = (fields: Partial<Record<string, string>> = {}) => {
     "scroll_region_lower",
     "alternate_saved_x",
     "alternate_saved_y",
+    "cursor_shape",
+    "cursor_colour",
   ];
   for (const [name, value] of Object.entries(fields)) {
     const index = names.indexOf(name);
@@ -90,6 +94,8 @@ test("snapshot display format has the documented field order", () => {
       "scroll_region_lower",
       "alternate_saved_x",
       "alternate_saved_y",
+      "cursor_shape",
+      "cursor_colour",
     ],
   );
 });
@@ -127,6 +133,8 @@ test("normal snapshot restores history, visible rows, cursor and terminal modes"
       origin_flag: "1",
       scroll_region_upper: "1",
       scroll_region_lower: "2",
+      cursor_shape: "bar",
+      cursor_colour: "#aabbcc",
     }),
     [Buffer.from("old history\nline one\nline two\nline three\n")],
     [],
@@ -146,6 +154,8 @@ test("normal snapshot restores history, visible rows, cursor and terminal modes"
   assert.ok(data.includes(`${esc}[?1006h`));
   assert.ok(data.includes(`${esc}[?2004h`));
   assert.ok(data.includes(`${esc}[2;3r`));
+  assert.ok(data.includes(`${esc}[6 q`));
+  assert.ok(data.includes(`${esc}]12;#aabbcc\x07`));
   assert.ok(data.endsWith(`${esc}[?6h${esc}[2;6H`));
 });
 

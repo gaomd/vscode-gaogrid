@@ -81,6 +81,10 @@ function restoreNode(value: unknown, depth = 0): LayoutNode | null {
               typeof tab.createdAt === "number" ? tab.createdAt : undefined,
             updatedAt:
               typeof tab.updatedAt === "number" ? tab.updatedAt : undefined,
+            ...(tab.degraded !== true &&
+            (tab.transport === "attach" || tab.transport === "control")
+              ? { transport: tab.transport }
+              : {}),
           },
         ];
       })

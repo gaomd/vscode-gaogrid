@@ -51,9 +51,11 @@ window.addEventListener("message", ({ data: message }) => {
       workspaces.sessionEnded(message.sessionId);
       break;
     case "init":
+      workspaces.setCapabilities(message.capabilities);
+      workspaces.setPreferences(message.preferences);
+      terminals.setPreferences(message.preferences);
       workspaces.setPresentation(message.presentation);
       workspaces.restore(message.state);
-      workspaces.setCapabilities(message.capabilities);
       break;
     case "presentation":
       workspaces.setPresentation(message.presentation);
@@ -100,6 +102,10 @@ window.addEventListener("message", ({ data: message }) => {
     case "settings":
     case "theme":
       terminals.applySettings(message.settings);
+      break;
+    case "preferences":
+      workspaces.setPreferences(message.preferences);
+      terminals.setPreferences(message.preferences);
       break;
   }
 });

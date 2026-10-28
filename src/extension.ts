@@ -15,6 +15,7 @@ import type {
   NewTerminalOptions,
   TerminalMetadata,
   LifecycleResult,
+  TerminalPreferences,
   WindowPresentation,
 } from "./terminal-protocol";
 import { STATE_KEY, LEGACY_STATE_KEY, restoreState } from "./persistence-store";
@@ -452,6 +453,7 @@ export function activate(context: vscode.ExtensionContext) {
             type: "init",
             state,
             capabilities,
+            preferences: terminalPreferences(),
             presentation: presentation(),
           });
           webviewView.webview.postMessage({
@@ -503,6 +505,16 @@ export function activate(context: vscode.ExtensionContext) {
             message.sequence,
           );
           break;
+        case "activeTerminal":
+          manager.setForeground(
+            typeof message.sessionId === "string"
+              ? message.sessionId
+              : undefined,
+          );
+          break;
+        case "preferences":
+          await updateTerminalPreferences(message.preferences);
+          break;
         case "persist":
           acceptState(message.state);
           await persist();
@@ -547,7 +559,10 @@ export function activate(context: vscode.ExtensionContext) {
                   ...defaultDirectories(),
                 ]));
             } else if (request.kind === "protect") {
-              const metadata = await manager.promote(request.sessionId);
+              const metadata = await manager.promote(
+                request.sessionId,
+                request.transport,
+              );
               if (metadata) {
                 await persist();
                 value = metadata;
@@ -582,6 +597,10 @@ export function activate(context: vscode.ExtensionContext) {
               );
               await persist();
               value = manager.metadata(tab.sessionId) || false;
+            } else if (request.kind === "reconnectDisplay") {
+              value =
+                (await manager.reconnectDisplay(request.sessionId)) || false;
+              await persist();
             } else if (request.kind === "unprotect") {
               const tab = state.workspaces
                 .flatMap((workspace) => getTabs(workspace.root))
@@ -866,6 +885,9 @@ export function activate(context: vscode.ExtensionContext) {
         e.affectsConfiguration("editor.fontFamily")
       )
         post({ type: "theme", settings: terminalSettings() });
+      if (e.affectsConfiguration("gaogrid")) {
+        post({ type: "preferences", preferences: terminalPreferences() });
+      }
     }),
   );
   shutdown = async () => {
@@ -971,6 +993,39 @@ function terminalSettings() {
     minimumContrastRatio: c.get("minimumContrastRatio", 1),
     gpuAcceleration: c.get("gpuAcceleration", "auto"),
   };
+}
+
+function terminalPreferences(): TerminalPreferences {
+  const configuration = vscode.workspace.getConfiguration("gaogrid");
+  const transport = configuration.get<string>("transportMode", "control");
+  const mousePolicy = configuration.get<string>("mousePolicy", "application");
+  return {
+    defaultProtected: configuration.get<boolean>("defaultProtected", false),
+    transport: transport === "attach" ? "attach" : "control",
+    mousePolicy:
+      mousePolicy === "terminal" || mousePolicy === "exclusive"
+        ? mousePolicy
+        : "application",
+  };
+}
+
+async function updateTerminalPreferences(value: unknown) {
+  if (!value || typeof value !== "object") return;
+  const preferences = value as Partial<TerminalPreferences>;
+  const configuration = vscode.workspace.getConfiguration("gaogrid");
+  const updates: [string, unknown][] = [];
+  if (typeof preferences.defaultProtected === "boolean")
+    updates.push(["defaultProtected", preferences.defaultProtected]);
+  if (preferences.transport === "control" || preferences.transport === "attach")
+    updates.push(["transportMode", preferences.transport]);
+  if (
+    preferences.mousePolicy === "application" ||
+    preferences.mousePolicy === "terminal" ||
+    preferences.mousePolicy === "exclusive"
+  )
+    updates.push(["mousePolicy", preferences.mousePolicy]);
+  for (const [key, next] of updates)
+    await configuration.update(key, next, vscode.ConfigurationTarget.Global);
 }
 function getHtml(webview: vscode.Webview, context: vscode.ExtensionContext) {
   const script = webview.asWebviewUri(

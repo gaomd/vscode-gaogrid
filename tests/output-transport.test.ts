@@ -7,7 +7,6 @@ import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { PtyManager } from "../src/pty-manager";
 import { TerminalOutputStream } from "../src/terminal-output-stream";
-import { OUTPUT_HIGH_WATERMARK } from "../src/terminal-output-flow";
 import { frontend } from "./fixtures/terminal-frontend";
 
 async function until(check: () => boolean, timeout = 15000) {
@@ -60,6 +59,7 @@ for (const backend of ["direct", "tmux"] as const)
   `,
     );
     const errors: string[] = [];
+    const outputHighWatermark = 256 * 1024;
     let streams: TerminalOutputStream;
     const manager = new PtyManager(
       (message: any) => {
@@ -71,6 +71,8 @@ for (const backend of ["direct", "tmux"] as const)
         defaultShell: () => "/bin/bash",
         defaultDirectories: () => [root],
         environment,
+        outputHighWatermark,
+        outputLowWatermark: 64 * 1024,
         ...(backend === "tmux"
           ? { tmuxConfigPath: resolve("resources/tmux.conf") }
           : {}),
@@ -197,16 +199,18 @@ for (const backend of ["direct", "tmux"] as const)
       f.tab.sessionId,
       `${quote(process.execPath)} ${quote(join(root, "producer.js"))}\r`,
     );
-    await until(() => pending >= OUTPUT_HIGH_WATERMARK / 2);
-    await new Promise((resolve) => setTimeout(resolve, 150));
-    const pausedAt = pending;
-    await new Promise((resolve) => setTimeout(resolve, 150));
-    assert.equal(
-      pending,
-      pausedAt,
-      "the real PTY must stop producing without ACK credit",
-    );
-    assert.ok(peak < OUTPUT_HIGH_WATERMARK * 2, `pending output was ${peak}`);
+    if (outputHighWatermark < Buffer.byteLength(line) * lines) {
+      await until(() => pending >= outputHighWatermark / 2);
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      const pausedAt = pending;
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      assert.equal(
+        pending,
+        pausedAt,
+        "the real PTY must stop producing without ACK credit",
+      );
+    } else await until(() => !collecting);
+    assert.ok(peak < outputHighWatermark * 2, `pending output was ${peak}`);
     hold = false;
     streams.acknowledge(
       latestAck.sessionId,
@@ -217,7 +221,7 @@ for (const backend of ["direct", "tmux"] as const)
     await until(() => pending === 0);
     assert.equal(received, line.replace(/\n/g, "\r\n").length * lines);
     assert.equal(digest.digest("hex"), expected.digest("hex"));
-    assert.ok(peak < OUTPUT_HIGH_WATERMARK * 2, `pending output was ${peak}`);
+    assert.ok(peak < outputHighWatermark * 2, `pending output was ${peak}`);
     assert.deepEqual(errors, []);
     assert.equal(f.terminal.unicode.activeVersion, "11");
     assert.ok(
@@ -231,7 +235,7 @@ for (const backend of ["direct", "tmux"] as const)
       f.tab.sessionId,
       `${quote(process.execPath)} ${quote(join(root, "producer.js"))}\r`,
     );
-    await until(() => pending >= OUTPUT_HIGH_WATERMARK / 2);
+    await until(() => pending >= outputHighWatermark / 2);
     streams.clear();
     assert.equal(pending, 0);
     await until(

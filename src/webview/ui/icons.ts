@@ -8,6 +8,8 @@ import splitVertical from "@vscode/codicons/src/icons/split-vertical.svg";
 import detach from "@vscode/codicons/src/icons/link-external.svg";
 import attach from "@vscode/codicons/src/icons/sign-in.svg";
 import maximize from "@vscode/codicons/src/icons/screen-full.svg";
+import settings from "@vscode/codicons/src/icons/settings.svg";
+import refresh from "@vscode/codicons/src/icons/refresh.svg";
 
 const sources = {
   shield,
@@ -20,6 +22,8 @@ const sources = {
   detach,
   attach,
   maximize,
+  settings,
+  refresh,
 };
 
 export type IconName = keyof typeof sources;
