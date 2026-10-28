@@ -2,6 +2,17 @@
 
 All notable changes to GaoGrid are documented here.
 
+## [0.5.2] - 2026-10-28
+
+### Fixes
+
+- Replace overlapping terminal scrollbars with a single slim, rounded scrollbar
+  that keeps the last text column visible.
+- Remove the dark strip below terminal content.
+- Restore text selection and scrolling in protected sessions. On macOS, hold
+  Option while dragging to select terminal text when an application captures
+  mouse input.
+
 ## [0.5.1] - 2026-10-28
 
 ### Fixes
