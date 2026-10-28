@@ -17,3 +17,19 @@ dist/**
 !dist/webview.css
 **/*.map
 **/*.pdb
+# JavaScript dependencies are embedded in dist; node-pty stays external.
+node_modules/node-addon-api/**
+# Keep node-pty's runtime, native prebuilds, helpers, and licenses.
+node_modules/node-pty/binding.gyp
+node_modules/node-pty/README.md
+node_modules/node-pty/src/**
+node_modules/node-pty/scripts/**
+node_modules/node-pty/typings/**
+node_modules/node-pty/build/**
+!node_modules/node-pty/build/{Release,Debug}/*.{node,dll,exe}
+!node_modules/node-pty/build/{Release,Debug}/spawn-helper
+!node_modules/node-pty/build/{Release,Debug}/conpty/*.{dll,exe}
+node_modules/node-pty/third_party/**
+node_modules/node-pty/deps/**
+!node_modules/node-pty/deps/winpty/LICENSE
+node_modules/node-pty/lib/**/*.test.js

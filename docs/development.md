@@ -41,6 +41,13 @@ To choose another output path, use `npm run package -- --out /path/to/gaogrid.vs
 The prepublish hook repairs the node-pty helper's executable bit before
 packaging; the running extension never mutates files under `node_modules`.
 
+esbuild embeds the JavaScript libraries, terminal CSS, and control icons in
+`dist`. Those libraries are development dependencies and are omitted from the
+VSIX. `node-pty` remains an external runtime dependency because it loads native
+modules and executable helpers. Packaging retains its runtime JavaScript,
+platform binaries, helpers, and licenses, while excluding tests, sources, and
+build dependencies.
+
 Before a release, run the development checks above, update `CHANGELOG.md`, and
 choose a version that has not been published. For example:
 
@@ -50,7 +57,9 @@ npm run package
 ```
 
 Install the generated VSIX to review the release, then commit the version and
-changelog changes. When ready, publish the current version:
+changelog changes. Add an annotated tag at that release commit, using the version
+from `package.json` (for example, `git tag -a v0.6.3 -m "GaoGrid v0.6.3"`).
+Release tags start at v0.2.0. When ready, publish the current version:
 
 ```sh
 npm run release
