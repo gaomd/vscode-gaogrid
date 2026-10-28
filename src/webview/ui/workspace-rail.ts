@@ -26,6 +26,9 @@ export class WorkspaceRail {
   private readonly settingsButton: HTMLButtonElement;
   private readonly settingsPanel: HTMLDivElement;
   private updateSettingsControls = () => {};
+  private settingsTooltip?: HTMLDivElement;
+  private settingsTooltipAnchor?: HTMLElement;
+  private settingsDismissal?: AbortController;
 
   constructor(private readonly actions: WorkspaceActions) {
     this.element.className = "workspace-rail";
@@ -221,7 +224,7 @@ export class WorkspaceRail {
       label: "Terminal Settings",
       icon: "settings",
       className: "workspace-rail__settings",
-      onClick: () => this.toggleSettings(),
+      onClick: () => this.toggleSettings(undefined, true),
     });
     this.settingsButton.setAttribute("aria-expanded", "false");
     this.settingsButton.setAttribute("aria-controls", "terminal-settings");
@@ -361,19 +364,49 @@ export class WorkspaceRail {
       : "New Workspace · ⌘N";
   }
 
-  private toggleSettings(force?: boolean) {
+  private toggleSettings(force?: boolean, restoreFocus = false) {
     const visible = force === undefined ? this.settingsPanel.hidden : force;
     this.settingsPanel.hidden = !visible;
     this.settingsButton.setAttribute("aria-expanded", String(visible));
     if (visible) {
-      const bounds = this.settingsButton.getBoundingClientRect();
-      this.settingsPanel.style.left = `${Math.round(bounds.right + 4)}px`;
-      this.settingsPanel.style.bottom = `${Math.round(window.innerHeight - bounds.top + 4)}px`;
+      this.startSettingsDismissal();
+      this.positionSettingsPanel();
       this.updateSettingsControls();
       this.settingsPanel
         .querySelector<HTMLButtonElement>('button[aria-pressed="true"]')
         ?.focus();
-    } else this.settingsButton.focus();
+    } else {
+      this.settingsDismissal?.abort();
+      this.settingsDismissal = undefined;
+      this.hideSettingsTooltip();
+      if (restoreFocus) this.settingsButton.focus();
+    }
+  }
+
+  private startSettingsDismissal() {
+    this.settingsDismissal?.abort();
+    const listeners = new AbortController();
+    this.settingsDismissal = listeners;
+    document.addEventListener(
+      "pointerdown",
+      (event) => {
+        const target = event.target;
+        if (
+          target instanceof Node &&
+          (this.settingsPanel.contains(target) ||
+            this.settingsButton.contains(target))
+        )
+          return;
+        this.toggleSettings(false);
+      },
+      { capture: true, signal: listeners.signal },
+    );
+    window.addEventListener("blur", () => this.toggleSettings(false), {
+      signal: listeners.signal,
+    });
+    window.addEventListener("resize", () => this.toggleSettings(false), {
+      signal: listeners.signal,
+    });
   }
 
   private createSettingsPanel() {
@@ -383,6 +416,12 @@ export class WorkspaceRail {
     panel.hidden = true;
     panel.setAttribute("role", "dialog");
     panel.setAttribute("aria-label", "New terminal settings");
+    panel.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      this.toggleSettings(false, true);
+    });
 
     const availability = document.createElement("p");
     availability.className = "terminal-settings__note";
@@ -390,8 +429,16 @@ export class WorkspaceRail {
     const protection = this.settingsGroup(
       "Default new terminal",
       [
-        ["Unprotected", false],
-        ["Protected", true],
+        [
+          "Unprotected",
+          false,
+          "Start new terminals as direct sessions. They do not survive extension host or editor restarts.",
+        ],
+        [
+          "Protected",
+          true,
+          "Start new terminals in tmux. They survive extension host and editor restarts.",
+        ],
       ],
       () => this.actions.terminalPreferences().defaultProtected,
       (value) =>
@@ -401,10 +448,18 @@ export class WorkspaceRail {
         }),
     );
     const transport = this.settingsGroup(
-      "Transport",
+      "tmux Transport",
       [
-        ["Control Mode", "control"],
-        ["Attach Mode", "attach"],
+        [
+          "Control Mode",
+          "control",
+          "Use the structured tmux connection for full history, snapshots, and display refresh.",
+        ],
+        [
+          "Attach Mode",
+          "attach",
+          "Use tmux's native attach client for terminal rendering and input.",
+        ],
       ] as const,
       () => this.actions.terminalPreferences().transport,
       (value) =>
@@ -413,12 +468,46 @@ export class WorkspaceRail {
           transport: value,
         }),
     );
-    const mouse = this.settingsGroup(
-      "Mouse",
+    const tmuxMouse = this.settingsGroup(
+      "tmux Mouse",
       [
-        ["Application", "application"],
-        ["Terminal", "terminal"],
-        ["App Exclusive", "exclusive"],
+        [
+          "On",
+          true,
+          "In Attach Mode, tmux owns selection, scrolling, and terminal application mouse input.",
+        ],
+        [
+          "Off",
+          false,
+          "In Attach Mode, use local terminal selection and scrolling. Terminal applications can still request mouse input.",
+        ],
+      ],
+      () => this.actions.terminalPreferences().tmuxMouse,
+      (value) =>
+        this.actions.updatePreferences({
+          ...this.actions.terminalPreferences(),
+          tmuxMouse: value,
+        }),
+      "Only affects Attach Mode. Turn off tmux Mouse to use local terminal selection.",
+    );
+    const mouse = this.settingsGroup(
+      "Terminal Mouse",
+      [
+        [
+          "Application",
+          "application",
+          "Terminal applications receive mouse input first. Hold Shift to scroll terminal history while an application tracks the mouse.",
+        ],
+        [
+          "Terminal",
+          "terminal",
+          "Terminal scrolling is handled locally, even when a terminal application requests mouse input.",
+        ],
+        [
+          "App Exclusive",
+          "exclusive",
+          "Terminal applications exclusively handle mouse input. Scrolling is not intercepted.",
+        ],
       ] as const,
       () => this.actions.terminalPreferences().mousePolicy,
       (value) =>
@@ -426,56 +515,84 @@ export class WorkspaceRail {
           ...this.actions.terminalPreferences(),
           mousePolicy: value,
         }),
+      "The Terminal Mouse policy applies only in Control Mode. Attach Mode uses the separate tmux Mouse setting.",
     );
-    const nativeMouse = document.createElement("p");
-    nativeMouse.className = "terminal-settings__note";
-    nativeMouse.textContent = "Mouse is managed by native tmux in Attach Mode.";
-    nativeMouse.hidden = true;
-    panel.append(
+    const section = document.createElement("section");
+    section.className = "terminal-settings__section";
+    const sectionTitle = document.createElement("h2");
+    sectionTitle.className = "terminal-settings__section-title";
+    sectionTitle.textContent = "Terminal & tmux Settings";
+    section.append(
+      sectionTitle,
       protection.element,
       transport.element,
+      tmuxMouse.element,
       mouse.element,
-      nativeMouse,
-      availability,
     );
+    panel.append(section, availability);
     this.updateSettingsControls = () => {
       const available = this.actions.protectionAvailable();
       availability.hidden = available;
       availability.textContent = "tmux 3.2a or newer is required.";
       protection.refresh(this.actions.terminalPreferences().defaultProtected);
       transport.refresh(this.actions.terminalPreferences().transport);
+      tmuxMouse.refresh(this.actions.terminalPreferences().tmuxMouse);
       mouse.refresh(this.actions.terminalPreferences().mousePolicy);
       protection.buttons.forEach((button) => (button.disabled = !available));
       transport.buttons.forEach((button) => (button.disabled = !available));
+      tmuxMouse.buttons.forEach((button) => (button.disabled = !available));
       const attach =
         available && this.actions.terminalPreferences().transport === "attach";
+      tmuxMouse.element.hidden = !attach;
+      mouse.element.hidden = attach;
       mouse.buttons.forEach(
         (button) => (button.disabled = attach || !available),
       );
-      nativeMouse.hidden = !attach;
+      if (!panel.hidden) this.positionSettingsPanel();
     };
     return panel;
   }
 
+  private positionSettingsPanel() {
+    const bounds = this.settingsButton.getBoundingClientRect();
+    const panelWidth = this.settingsPanel.getBoundingClientRect().width;
+    this.settingsPanel.style.left = `${Math.round(Math.max(4, Math.min(bounds.right + 4, window.innerWidth - panelWidth - 4)))}px`;
+    this.settingsPanel.style.bottom = `${Math.round(window.innerHeight - bounds.bottom)}px`;
+  }
+
   private settingsGroup<T>(
     title: string,
-    options: readonly (readonly [string, T])[],
+    options: readonly (readonly [string, T, string?])[],
     getValue: () => T,
     setValue: (value: T) => void,
+    info?: string,
   ) {
     const group = document.createElement("section");
     group.className = "terminal-settings__group";
+    const heading = document.createElement("div");
+    heading.className = "terminal-settings__heading";
     const label = document.createElement("h3");
     label.textContent = title;
+    heading.append(label);
+    if (info) {
+      const infoIcon = document.createElement("button");
+      infoIcon.type = "button";
+      infoIcon.className = "terminal-settings__info";
+      infoIcon.setAttribute("aria-label", info);
+      infoIcon.append(createIcon("info"));
+      this.bindSettingsTooltip(infoIcon, info);
+      heading.append(infoIcon);
+    }
     const buttons = document.createElement("div");
     buttons.className = "terminal-settings__options";
     buttons.setAttribute("role", "group");
     buttons.setAttribute("aria-label", title);
-    const controls = options.map(([text, value]) => {
+    const controls = options.map(([text, value, description]) => {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "terminal-settings__option";
       button.textContent = text;
+      if (description) this.bindSettingsTooltip(button, description);
       button.setAttribute("aria-pressed", String(getValue() === value));
       button.addEventListener("click", () => {
         setValue(value);
@@ -486,7 +603,7 @@ export class WorkspaceRail {
       buttons.append(button);
       return button;
     });
-    group.append(label, buttons);
+    group.append(heading, buttons);
     return {
       element: group,
       buttons: controls,
@@ -499,5 +616,61 @@ export class WorkspaceRail {
         );
       },
     };
+  }
+
+  private bindSettingsTooltip(anchor: HTMLElement, description: string) {
+    anchor.addEventListener("pointerenter", () =>
+      this.showSettingsTooltip(anchor, description),
+    );
+    anchor.addEventListener("pointerleave", () =>
+      this.hideSettingsTooltip(anchor),
+    );
+    anchor.addEventListener("focus", () => {
+      if (anchor.matches(":focus-visible"))
+        this.showSettingsTooltip(anchor, description);
+    });
+    anchor.addEventListener("blur", () => this.hideSettingsTooltip(anchor));
+  }
+
+  private showSettingsTooltip(anchor: HTMLElement, description: string) {
+    let tooltip = this.settingsTooltip;
+    if (!tooltip) {
+      tooltip = document.createElement("div");
+      tooltip.id = "terminal-settings-tooltip";
+      tooltip.className = "settings-tooltip";
+      tooltip.setAttribute("role", "tooltip");
+      tooltip.hidden = true;
+      document.body.append(tooltip);
+      this.settingsTooltip = tooltip;
+    }
+
+    this.settingsTooltipAnchor?.removeAttribute("aria-describedby");
+    this.settingsTooltipAnchor = anchor;
+    anchor.setAttribute("aria-describedby", tooltip.id);
+    tooltip.textContent = description;
+    tooltip.hidden = false;
+
+    const anchorBounds = anchor.getBoundingClientRect();
+    const tooltipBounds = tooltip.getBoundingClientRect();
+    const gutter = 4;
+    let top = anchorBounds.bottom + gutter;
+    if (top + tooltipBounds.height > window.innerHeight - gutter)
+      top = anchorBounds.top - tooltipBounds.height - gutter;
+    const left = Math.max(
+      gutter,
+      Math.min(
+        anchorBounds.left + anchorBounds.width / 2 - tooltipBounds.width / 2,
+        window.innerWidth - tooltipBounds.width - gutter,
+      ),
+    );
+    tooltip.style.left = `${Math.round(left)}px`;
+    tooltip.style.top = `${Math.round(Math.max(gutter, top))}px`;
+  }
+
+  private hideSettingsTooltip(anchor?: HTMLElement) {
+    if (anchor && this.settingsTooltipAnchor !== anchor) return;
+    this.settingsTooltipAnchor?.removeAttribute("aria-describedby");
+    this.settingsTooltipAnchor = undefined;
+    if (this.settingsTooltip) this.settingsTooltip.hidden = true;
   }
 }

@@ -63,7 +63,7 @@ export class PaneView {
     tools.setAttribute("aria-label", "Pane actions");
     this.shield = createControl({
       label:
-        "Protect Session\n\nMove this idle terminal into a persistent session that survives VS Code restarts.",
+        "Protect Session\n\nMove this idle terminal into a persistent session that survives extension host and editor restarts.",
       icon: "shield",
       onClick: () => {
         if (this.node.activeTabId)
@@ -226,8 +226,8 @@ export class PaneView {
       active?.backend === "tmux"
         ? active.connectionState === "disconnected"
           ? "Reconnect Protected Session"
-          : "Protected Session\n\nThis terminal is backed by tmux and can survive VS Code restarts."
-        : "Protect Session\n\nMove this idle terminal into a persistent session that survives VS Code restarts.";
+          : "Protected Session\n\nThis terminal is backed by tmux and can survive extension host and editor restarts."
+        : "Protect Session\n\nMove this idle terminal into a persistent session that survives extension host and editor restarts.";
     this.shield.setAttribute("aria-label", this.shield.title);
     this.add.disabled = node.tabs.length >= MAX_TABS_PER_PANE;
     this.add.title = this.add.disabled
