@@ -1,6 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "child_process";
 import { constants as osConstants } from "os";
 import { StringDecoder } from "string_decoder";
+import { TmuxOutputFilter } from "./tmux-output-filter";
 import {
   TMUX_SNAPSHOT_FORMAT,
   decodeTmuxEscapes,
@@ -29,6 +30,7 @@ export class TmuxControlProcess {
   readonly ready: Promise<void>;
   private readonly child: ChildProcessWithoutNullStreams;
   private readonly paneDecoder = new StringDecoder("utf8");
+  private readonly outputFilter = new TmuxOutputFilter();
   private lineBuffer = Buffer.alloc(0);
   private block?: { id: string; lines: Buffer[]; responseIndex: number };
   private completedBlocks = 0;
@@ -79,7 +81,10 @@ export class TmuxControlProcess {
     this.child.once("close", (code, signal) => {
       // Drain stdout before announcing exit, so the final pane bytes reach
       // history before lifecycle cleanup can dispose the terminal.
-      this.deliver(this.paneDecoder.end());
+      this.deliver(
+        this.outputFilter.write(this.paneDecoder.end()) +
+          this.outputFilter.flush(),
+      );
       this.exited = true;
       const event: Exit = { exitCode: code ?? (signal ? 1 : 0) };
       if (signal) event.signal = osConstants.signals[signal];
@@ -206,7 +211,9 @@ export class TmuxControlProcess {
       const payloadOffset = Buffer.byteLength(output[0], "utf8");
       const paneBytes = decodeTmuxEscapes(bytes.subarray(payloadOffset));
       if (this.snapshotDone && output[1] === this.paneId)
-        this.deliver(this.paneDecoder.write(paneBytes));
+        this.deliver(
+          this.outputFilter.write(this.paneDecoder.write(paneBytes)),
+        );
       // Earlier %output records are represented by capture-pane in the batch.
       return;
     }

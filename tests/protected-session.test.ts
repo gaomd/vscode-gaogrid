@@ -647,6 +647,109 @@ test("a killed Extension Host leaves the protected task alive for a new host", a
   await until(() => !running(pid));
 });
 
+test("tmux answers direct DSR once and xterm answers DCS passthrough DSR once", async (t) => {
+  const h = await setup(t);
+  if (!h) return;
+  const manager = h.manager();
+  const inputFile = join(h.root, "query-input.bin");
+  const script = join(h.root, "query-receiver.js");
+  await writeFile(
+    script,
+    String.raw`
+    const fs = require('node:fs');
+    const inputFile = ${JSON.stringify(inputFile)};
+    fs.writeFileSync(inputFile, Buffer.alloc(0));
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+    let barriers = 0;
+    const marker = (...parts) => process.stdout.write(Buffer.concat(parts.map(part => Buffer.from(part))));
+    process.stdin.on('data', data => {
+      fs.appendFileSync(inputFile, data);
+      for (const byte of data) {
+        if (byte === 0x05) {
+          process.stdout.write(Buffer.from([0x1b, 0x5b, 0x36, 0x6e]));
+          marker('DIRECT_', 'SENT');
+        } else if (byte === 0x06) {
+          process.stdout.write(Buffer.from([0x1b, 0x50, 0x74, 0x6d, 0x75, 0x78, 0x3b, 0x1b, 0x1b, 0x5b, 0x36, 0x6e, 0x1b, 0x5c]));
+          marker('WRAPPED_', 'SENT');
+        } else if (byte === 0x07) {
+          barriers++;
+          marker('BARRIER_', String(barriers), '_DONE');
+        }
+      }
+    });
+    marker('QUERY_', 'READY');
+  `,
+  );
+  await manager.start("queries", h.root, undefined, false, { backend: "tmux" });
+  await until(
+    () => manager.output("queries")?.includes("TMUX_READY>") || false,
+  );
+  const terminal = new Terminal({
+    allowProposedApi: true,
+    cols: 80,
+    rows: 24,
+    scrollback: 1000,
+  });
+  t.after(() => terminal.dispose());
+  terminal.onData((data) => manager.input("queries", data));
+  const initialSnapshot = await manager.replay("queries");
+  assert.ok(initialSnapshot);
+  await new Promise<void>((resolve) =>
+    terminal.write(initialSnapshot.data, resolve),
+  );
+  let cursor = h.outputChunks.get("queries")?.length || 0;
+
+  manager.input(
+    "queries",
+    `exec ${quote(process.execPath)} ${quote(script)}\r`,
+  );
+  await until(
+    () => manager.output("queries")?.includes("QUERY_READY") || false,
+  );
+  async function renderNewOutput() {
+    cursor = await writeChunks(
+      terminal,
+      h.outputChunks.get("queries") || [],
+      cursor,
+    );
+  }
+  async function waitForBarrier(number: number) {
+    manager.input("queries", "\x07");
+    await until(
+      () =>
+        manager.output("queries")?.includes(`BARRIER_${number}_DONE`) || false,
+    );
+    await renderNewOutput();
+    return readFile(inputFile);
+  }
+  function cursorReports(data: Buffer) {
+    return [...data.toString("latin1").matchAll(/\x1b\[\d+;\d+R/g)].length;
+  }
+
+  manager.input("queries", "\x05");
+  await until(
+    () => manager.output("queries")?.includes("DIRECT_SENT") || false,
+  );
+  await renderNewOutput();
+  const afterDirect = await waitForBarrier(1);
+  const directReplies = cursorReports(afterDirect);
+
+  manager.input("queries", "\x06");
+  await until(
+    () => manager.output("queries")?.includes("WRAPPED_SENT") || false,
+  );
+  await renderNewOutput();
+  const afterWrapped = await waitForBarrier(2);
+  const allReplies = cursorReports(afterWrapped);
+  assert.equal(directReplies, 1, "tmux supplies exactly one direct DSR reply");
+  assert.equal(
+    allReplies,
+    2,
+    "DCS passthrough receives exactly one xterm DSR reply",
+  );
+});
+
 test("protected terminal carries colors, Unicode, paste, application-requested mouse and modified Enter", async (t) => {
   const h = await setup(t);
   if (!h) return;
