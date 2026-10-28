@@ -208,11 +208,11 @@ button {
 }
 
 .terminal-settings {
-  position: absolute;
-  right: calc(100% + var(--gg-space));
-  bottom: calc(100% + var(--gg-space));
+  position: fixed;
   z-index: 20;
   width: 230px;
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
   padding: 10px;
   border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
   border-radius: 8px;

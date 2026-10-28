@@ -224,6 +224,7 @@ export class WorkspaceRail {
       onClick: () => this.toggleSettings(),
     });
     this.settingsButton.setAttribute("aria-expanded", "false");
+    this.settingsButton.setAttribute("aria-controls", "terminal-settings");
     this.settingsPanel = this.createSettingsPanel();
     const footer = document.createElement("div");
     footer.className = "workspace-rail__footer";
@@ -365,6 +366,9 @@ export class WorkspaceRail {
     this.settingsPanel.hidden = !visible;
     this.settingsButton.setAttribute("aria-expanded", String(visible));
     if (visible) {
+      const bounds = this.settingsButton.getBoundingClientRect();
+      this.settingsPanel.style.left = `${Math.round(bounds.right + 4)}px`;
+      this.settingsPanel.style.bottom = `${Math.round(window.innerHeight - bounds.top + 4)}px`;
       this.updateSettingsControls();
       this.settingsPanel
         .querySelector<HTMLButtonElement>('button[aria-pressed="true"]')
@@ -375,6 +379,7 @@ export class WorkspaceRail {
   private createSettingsPanel() {
     const panel = document.createElement("div");
     panel.className = "terminal-settings";
+    panel.id = "terminal-settings";
     panel.hidden = true;
     panel.setAttribute("role", "dialog");
     panel.setAttribute("aria-label", "New terminal settings");
@@ -464,6 +469,8 @@ export class WorkspaceRail {
     label.textContent = title;
     const buttons = document.createElement("div");
     buttons.className = "terminal-settings__options";
+    buttons.setAttribute("role", "group");
+    buttons.setAttribute("aria-label", title);
     const controls = options.map(([text, value]) => {
       const button = document.createElement("button");
       button.type = "button";
