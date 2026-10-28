@@ -137,9 +137,9 @@ Saved layouts are validated on recovery, with a fallback to the original v1 stor
 - Sash highlights and resize cursors appear after 200ms of hover. Leaving cancels
   the delay; dragging starts immediately and keeps the highlight visible. Hover
   and drag colors use VS Code's `sash.hoverBorder` theme color.
-- Terminal hosts observe their own size and refit after fonts load. A 6px native
-  scrollbar overlays the grid and synchronizes through xterm's scrollback API.
-  `terminal-fit.ts` fits full-width columns without xterm's scrollbar reservation;
+- Terminal hosts observe their own size and refit after fonts load. Use xterm's
+  built-in scrollbar with a slim, rounded 6px thumb. `terminal-fit.ts` reserves
+  a matching 6px gutter so the scrollbar does not cover the final text column;
   the character grid can still leave less than one character of unused width.
 - Both menu entry points use `MenuController`, including viewport positioning,
   keyboard navigation, focus return, and dismissal cleanup. Toolbar menus align
