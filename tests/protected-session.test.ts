@@ -319,69 +319,106 @@ test("protected output renders every live row and preserves screen transitions",
   assert.equal(restoredTerminal.buffer.active.type, "normal");
 });
 
-test("a new protected terminal can use the native attach transport", async (t) => {
-  const h = await setup(t);
-  if (!h) return;
-  const manager = h.manager();
-  await manager.start("attach", h.root, undefined, false, {
-    backend: "tmux",
-    transport: "attach",
+for (const transport of ["control", "attach"] as const) {
+  test(`new protected terminals default to tmux mouse on in ${transport} mode`, async (t) => {
+    const h = await setup(t);
+    if (!h) return;
+    const manager = h.manager();
+    await manager.start("attach", h.root, undefined, false, {
+      backend: "tmux",
+      transport,
+    });
+    await until(
+      () => manager.output("attach")?.includes("TMUX_READY>") || false,
+    );
+    const metadata = manager.metadata("attach")!;
+    assert.equal(metadata.transport, transport);
+    assert.equal(metadata.degraded, undefined);
+    assert.ok(metadata.backendSessionId);
+    assert.equal(
+      (
+        await exec("tmux", [
+          "-L",
+          "gaogrid",
+          "show-options",
+          "-wv",
+          "-t",
+          `=${metadata.backendSessionId}:0`,
+          "mouse",
+        ])
+      ).stdout.trim(),
+      "on",
+    );
+    manager.input("attach", "printf 'ATTACH_%s\\n' MODE\r");
+    await until(
+      () => manager.output("attach")?.includes("ATTACH_MODE") || false,
+    );
+    assert.deepEqual(h.errors, []);
   });
-  await until(() => manager.output("attach")?.includes("TMUX_READY>") || false);
-  const metadata = manager.metadata("attach")!;
-  assert.equal(metadata.transport, "attach");
-  assert.equal(metadata.degraded, undefined);
-  assert.ok(metadata.backendSessionId);
-  assert.equal(
-    (
-      await exec("tmux", [
-        "-L",
-        "gaogrid",
-        "show-options",
-        "-wv",
-        "-t",
-        `=${metadata.backendSessionId}:0`,
-        "mouse",
-      ])
-    ).stdout.trim(),
-    "on",
-  );
-  manager.input("attach", "printf 'ATTACH_%s\\n' MODE\r");
-  await until(() => manager.output("attach")?.includes("ATTACH_MODE") || false);
-  assert.deepEqual(h.errors, []);
-});
 
-test("native attach can use local selection with tmux mouse off", async (t) => {
-  const h = await setup(t);
-  if (!h) return;
-  const manager = h.manager(undefined, undefined, undefined, false);
-  await manager.start("attach-local", h.root, undefined, false, {
-    backend: "tmux",
-    transport: "attach",
+  test(`tmux mouse preference stays independent of ${transport} mode across live updates and reconnects`, async (t) => {
+    const h = await setup(t);
+    if (!h) return;
+    const manager = h.manager(undefined, undefined, undefined, false);
+    await manager.start("attach-local", h.root, undefined, false, {
+      backend: "tmux",
+      transport,
+    });
+    await until(
+      () => manager.output("attach-local")?.includes("TMUX_READY>") || false,
+    );
+    const id = manager.metadata("attach-local")!.backendSessionId!;
+    const mouse = async () =>
+      (
+        await exec("tmux", [
+          "-L",
+          "gaogrid",
+          "show-options",
+          "-wv",
+          "-t",
+          `=${id}:0`,
+          "mouse",
+        ])
+      ).stdout.trim();
+    assert.equal(await mouse(), "off");
+    await manager.setTmuxMouse(true);
+    assert.equal(await mouse(), "on");
+    await manager.reconnectDisplay("attach-local");
+    assert.equal(await mouse(), "on");
+    await manager.setTmuxMouse(false);
+    assert.equal(await mouse(), "off");
+    await manager.reconnectDisplay("attach-local");
+    assert.equal(await mouse(), "off");
+    assert.deepEqual(h.errors, []);
   });
-  await until(
-    () => manager.output("attach-local")?.includes("TMUX_READY>") || false,
-  );
-  const id = manager.metadata("attach-local")!.backendSessionId!;
-  const mouse = async () =>
-    (
-      await exec("tmux", [
-        "-L",
-        "gaogrid",
-        "show-options",
-        "-wv",
-        "-t",
-        `=${id}:0`,
-        "mouse",
-      ])
-    ).stdout.trim();
-  assert.equal(await mouse(), "off");
-  await manager.setTmuxMouse(true);
-  assert.equal(await mouse(), "on");
-  await manager.setTmuxMouse(false);
-  assert.equal(await mouse(), "off");
-  assert.deepEqual(h.errors, []);
-});
+
+  test(`promoting to ${transport} mode preserves tmux mouse off`, async (t) => {
+    const h = await setup(t);
+    if (!h) return;
+    const manager = h.manager(undefined, undefined, undefined, false);
+    await manager.start("promote-mouse", h.root);
+    await until(
+      () => manager.output("promote-mouse")?.includes("TMUX_READY>") || false,
+    );
+    const metadata = await manager.promote("promote-mouse", transport);
+    assert.equal(metadata?.transport, transport);
+    assert.equal(
+      (
+        await exec("tmux", [
+          "-L",
+          "gaogrid",
+          "show-options",
+          "-wv",
+          "-t",
+          `=${metadata!.backendSessionId}:0`,
+          "mouse",
+        ])
+      ).stdout.trim(),
+      "off",
+    );
+    assert.deepEqual(h.errors, []);
+  });
+}
 
 test("display reconnect replaces only the control client", async (t) => {
   const h = await setup(t);
@@ -1022,7 +1059,7 @@ for (const colorReports of [true, false]) {
 test("protected terminal carries colors, Unicode, paste, application-requested mouse and modified Enter", async (t) => {
   const h = await setup(t);
   if (!h) return;
-  const manager = h.manager();
+  const manager = h.manager(undefined, undefined, undefined, false);
   const input = join(h.root, "input.bin");
   const script = join(h.root, "protocol.js");
   await writeFile(

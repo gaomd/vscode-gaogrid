@@ -49,6 +49,12 @@ real terminal processes and tmux 3.8 on macOS with bash and zsh; 3.8 is the
 continuously verified version. Older tmux installations continue to support direct
 terminals, but protection is disabled.
 
+The tmux Mouse On/Off setting is always visible and defaults to On. It applies
+immediately to protected sessions in both Control and Attach modes, independently
+of the selected transport.
+Scroll Behavior applies to Direct sessions and Control mode. Its choices remain
+visible but disabled in Attach mode, where tmux handles scrolling.
+
 | Feature                | Validation and limitations                                                                                                                                                                                                                                                                                  |
 | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | True color / 256 color | Automated capture verifies RGB and palette values.                                                                                                                                                                                                                                                          |

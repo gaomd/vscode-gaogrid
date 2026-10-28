@@ -253,7 +253,7 @@ button {
 }
 
 .terminal-settings__section-title {
-  margin: 0 0 8px;
+  margin: 0;
   font-size: 11px;
   font-weight: 600;
   color: var(--gg-text);
@@ -265,6 +265,10 @@ button {
   align-items: center;
   gap: var(--gg-space);
   margin-block-end: 5px;
+}
+
+.terminal-settings__section-heading {
+  margin-block-end: 8px;
 }
 
 .terminal-settings h3,
@@ -328,6 +332,7 @@ button {
   font-size: 11px;
   line-height: 16px;
   text-align: left;
+  white-space: pre-line;
   pointer-events: none;
 }
 
@@ -379,6 +384,23 @@ button {
 .terminal-settings__option:disabled {
   opacity: 0.4;
   cursor: default;
+}
+
+.terminal-settings__markers {
+  margin-inline-start: 3px;
+  font-size: 10px;
+  line-height: 0;
+  vertical-align: super;
+}
+
+.terminal-settings__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 10px 0 0;
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  line-height: 16px;
 }
 
 .terminal-settings__note {

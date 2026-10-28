@@ -10,7 +10,7 @@ function wheel(deltaY: number, shiftKey = false): WheelEvent {
   } as WheelEvent;
 }
 
-test("mouse policy follows libghostty-style application and Shift routing", async (t) => {
+test("scroll policies prioritize applications, route Shift-wheel, and bypass native attach", async (t) => {
   const f = frontend(t);
   f.tab.transport = "control";
   f.view.updateTab(f.tab);

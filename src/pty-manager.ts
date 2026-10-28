@@ -107,12 +107,7 @@ export class PtyManager {
     this.tmuxMouse = enabled;
     await Promise.all(
       [...this.backends.values()].map(async (metadata) => {
-        if (
-          metadata.backend !== "tmux" ||
-          !metadata.backendSessionId ||
-          metadata.transport !== "attach"
-        )
-          return;
+        if (metadata.backend !== "tmux" || !metadata.backendSessionId) return;
         try {
           await this.tmux.configureMouse(metadata.backendSessionId, enabled);
         } catch (error) {
@@ -253,7 +248,7 @@ export class PtyManager {
         if (pane) await this.tmux.configure();
         await this.tmux.configureMouse(
           metadata.backendSessionId!,
-          metadata.transport === "attach" && this.tmuxMouse,
+          this.tmuxMouse,
         );
         if (pane && metadata.transport === "attach")
           prefix = await this.tmux.history(
@@ -623,6 +618,7 @@ export class PtyManager {
     let switched = false;
     try {
       id = await this.tmux.create(cwd, original.shell, size.cols, size.rows);
+      await this.tmux.configureMouse(id, this.tmuxMouse);
       candidate = this.spawnClient(
         sessionId,
         cwd,
@@ -885,10 +881,7 @@ export class PtyManager {
     try {
       if (!(await this.tmux.inspect(metadata.backendSessionId)))
         throw new Error("Protected session is no longer available.");
-      await this.tmux.configureMouse(
-        metadata.backendSessionId,
-        transport === "attach" && this.tmuxMouse,
-      );
+      await this.tmux.configureMouse(metadata.backendSessionId, this.tmuxMouse);
       const cwd = metadata.cwd || previous?.cwd.cwd || "";
       const prefix =
         transport === "attach"

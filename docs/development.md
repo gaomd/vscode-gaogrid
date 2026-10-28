@@ -249,10 +249,20 @@ visible terminal's pane dimensions. Normal extension shutdown detaches protected
 clients; only the explicit lifecycle close path destroys their tmux sessions.
 
 The settings control above the detach button stores new-terminal defaults in user
-settings: protected or direct, control or attach, and mouse priority. Attach mode
-defers mouse handling to tmux. The default mouse policy follows libghostty:
-applications receive requested wheel events, Shift-wheel forces history, and
+settings: protected or direct, control or attach, tmux Mouse On/Off, and mouse
+priority. The tmux Mouse control is always visible, defaults to On, and applies
+immediately to protected sessions in either transport. Scroll Behavior applies to
+Direct sessions and Control mode; its controls remain visible but disabled in
+Attach mode, where tmux handles scrolling. App First is the default: applications
+receive requested wheel events, while Shift-wheel uses terminal scrolling. When
+an alternate screen has no scrollback, terminal scrolling sends Up/Down keys.
 Option-drag retains text selection on macOS.
+
+The section's info icon explains the xterm.js terminal, isolated tmux server and
+configuration, and tmux 3.2a requirement. An unavailable or unsupported tmux leaves
+the menu visible with its choices disabled; Direct sessions remain available.
+The legends identify built-in defaults with ○ and recommendations with ★,
+independently of the highlighted current choice.
 
 Control-mode initialization or protocol failure automatically falls back to
 native attach without destroying tmux. The per-process fallback marks the tab

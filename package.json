@@ -437,7 +437,7 @@
         "gaogrid.tmuxMouse": {
           "type": "boolean",
           "default": true,
-          "description": "Let tmux capture mouse input in Attach Mode. Turn off to use local terminal selection and scrolling."
+          "description": "Enable tmux mouse handling in Control and Attach modes. Applies immediately to existing protected sessions."
         },
         "gaogrid.mousePolicy": {
           "type": "string",
@@ -447,12 +447,12 @@
             "exclusive"
           ],
           "enumDescriptions": [
-            "Terminal applications receive mouse input first; Shift-wheel scrolls terminal history.",
-            "Terminal scrolling is handled locally even when applications request mouse input.",
-            "Terminal applications receive all mouse input; scrolling is not intercepted."
+            "Send wheel events to applications that request mouse input; hold Shift to use terminal scrolling instead.",
+            "Use terminal scrollback for wheel events; send Up/Down keys in full-screen applications without scrollback.",
+            "Leave wheel events to applications that request mouse input; the Shift-wheel shortcut for terminal scrolling is disabled."
           ],
           "default": "application",
-          "description": "Mouse policy for Control Mode. Attach Mode uses gaogrid.tmuxMouse."
+          "description": "Mouse-wheel routing for Direct sessions and tmux Control Mode. Clicks and text selection are unchanged. Attach Mode uses gaogrid.tmuxMouse."
         }
       }
     }

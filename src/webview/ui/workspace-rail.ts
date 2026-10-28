@@ -15,6 +15,18 @@ import {
   WORKSPACE_DRAG_TYPE,
 } from "./tab-drag";
 
+type SettingsOption<T> = readonly [
+  label: string,
+  value: T,
+  description?: string,
+  markers?: { default?: boolean; recommended?: boolean },
+];
+
+const SETTINGS_LEGEND = [
+  ["default", "○", "Default"],
+  ["recommended", "★", "Recommended"],
+] as const;
+
 export class WorkspaceRail {
   readonly element = document.createElement("nav");
   private readonly list = document.createElement("div");
@@ -432,12 +444,14 @@ export class WorkspaceRail {
         [
           "Unprotected",
           false,
-          "Start new terminals as direct sessions. They do not survive extension host or editor restarts.",
+          "Start new terminals as Direct sessions that end when the extension host or editor restarts.",
+          { default: true },
         ],
         [
           "Protected",
           true,
-          "Start new terminals in tmux. They survive extension host and editor restarts.",
+          "Start new terminals in tmux so sessions survive extension host and editor restarts.",
+          { recommended: true },
         ],
       ],
       () => this.actions.terminalPreferences().defaultProtected,
@@ -454,6 +468,7 @@ export class WorkspaceRail {
           "Control Mode",
           "control",
           "Use the structured tmux connection for full history, snapshots, and display refresh.",
+          { default: true, recommended: true },
         ],
         [
           "Attach Mode",
@@ -474,12 +489,13 @@ export class WorkspaceRail {
         [
           "On",
           true,
-          "In Attach Mode, tmux owns selection, scrolling, and terminal application mouse input.",
+          "Enable tmux mouse handling for protected sessions in Control and Attach modes.",
+          { default: true, recommended: true },
         ],
         [
           "Off",
           false,
-          "In Attach Mode, use local terminal selection and scrolling. Terminal applications can still request mouse input.",
+          "Disable tmux's own mouse handling. Terminal applications can still request mouse input.",
         ],
       ],
       () => this.actions.terminalPreferences().tmuxMouse,
@@ -488,25 +504,26 @@ export class WorkspaceRail {
           ...this.actions.terminalPreferences(),
           tmuxMouse: value,
         }),
-      "Only affects Attach Mode. Turn off tmux Mouse to use local terminal selection.",
+      "On by default in Control and Attach modes. Changes apply to existing protected sessions.",
     );
     const mouse = this.settingsGroup(
-      "Terminal Mouse",
+      "Scroll Behavior",
       [
         [
-          "Application",
+          "App First",
           "application",
-          "Terminal applications receive mouse input first. Hold Shift to scroll terminal history while an application tracks the mouse.",
+          "Send wheel events to applications that request mouse input. Hold Shift to use terminal scrolling instead.",
+          { default: true },
         ],
         [
-          "Terminal",
+          "Terminal First",
           "terminal",
-          "Terminal scrolling is handled locally, even when a terminal application requests mouse input.",
+          "Use terminal scrollback for wheel events. In full-screen applications without scrollback, send Up/Down keys instead.",
         ],
         [
-          "App Exclusive",
+          "App Only",
           "exclusive",
-          "Terminal applications exclusively handle mouse input. Scrolling is not intercepted.",
+          "Leave wheel events to the application when it requests mouse input. The Shift-wheel shortcut for terminal scrolling is disabled.",
         ],
       ] as const,
       () => this.actions.terminalPreferences().mousePolicy,
@@ -515,25 +532,46 @@ export class WorkspaceRail {
           ...this.actions.terminalPreferences(),
           mousePolicy: value,
         }),
-      "The Terminal Mouse policy applies only in Control Mode. Attach Mode uses the separate tmux Mouse setting.",
+      "When an application requests mouse input, choose who handles scrolling. Applies to Direct sessions and tmux Control Mode; disabled in Attach Mode. Clicks and text selection are unchanged.",
     );
     const section = document.createElement("section");
     section.className = "terminal-settings__section";
+    const sectionHeading = document.createElement("div");
+    sectionHeading.className =
+      "terminal-settings__heading terminal-settings__section-heading";
     const sectionTitle = document.createElement("h2");
     sectionTitle.className = "terminal-settings__section-title";
     sectionTitle.textContent = "Terminal & tmux Settings";
-    section.append(
+    sectionHeading.append(
       sectionTitle,
+      this.createSettingsInfo(
+        [
+          '"Terminal" refers to GaoGrid\'s built-in terminal, powered by xterm.js.',
+          "Protected sessions require tmux 3.2a or newer and use a dedicated tmux server and configuration, separate from your other tmux sessions and ~/.tmux.conf.",
+          "If no supported tmux is detected, this menu stays visible with its setting choices disabled. Unprotected terminals remain available. Connection failures after detection are reported in the terminal.",
+        ].join("\n\n"),
+      ),
+    );
+    section.append(
+      sectionHeading,
       protection.element,
       transport.element,
       tmuxMouse.element,
       mouse.element,
     );
-    panel.append(section, availability);
+    const legend = document.createElement("p");
+    legend.className = "terminal-settings__legend";
+    for (const [, symbol, label] of SETTINGS_LEGEND) {
+      const item = document.createElement("span");
+      item.textContent = `${symbol} ${label}`;
+      legend.append(item);
+    }
+    panel.append(section, legend, availability);
     this.updateSettingsControls = () => {
       const available = this.actions.protectionAvailable();
       availability.hidden = available;
-      availability.textContent = "tmux 3.2a or newer is required.";
+      availability.textContent =
+        "No supported tmux was detected. These settings require tmux 3.2a or newer. Unprotected terminals remain available.";
       protection.refresh(this.actions.terminalPreferences().defaultProtected);
       transport.refresh(this.actions.terminalPreferences().transport);
       tmuxMouse.refresh(this.actions.terminalPreferences().tmuxMouse);
@@ -543,8 +581,6 @@ export class WorkspaceRail {
       tmuxMouse.buttons.forEach((button) => (button.disabled = !available));
       const attach =
         available && this.actions.terminalPreferences().transport === "attach";
-      tmuxMouse.element.hidden = !attach;
-      mouse.element.hidden = attach;
       mouse.buttons.forEach(
         (button) => (button.disabled = attach || !available),
       );
@@ -562,7 +598,7 @@ export class WorkspaceRail {
 
   private settingsGroup<T>(
     title: string,
-    options: readonly (readonly [string, T, string?])[],
+    options: readonly SettingsOption<T>[],
     getValue: () => T,
     setValue: (value: T) => void,
     info?: string,
@@ -574,24 +610,28 @@ export class WorkspaceRail {
     const label = document.createElement("h3");
     label.textContent = title;
     heading.append(label);
-    if (info) {
-      const infoIcon = document.createElement("button");
-      infoIcon.type = "button";
-      infoIcon.className = "terminal-settings__info";
-      infoIcon.setAttribute("aria-label", info);
-      infoIcon.append(createIcon("info"));
-      this.bindSettingsTooltip(infoIcon, info);
-      heading.append(infoIcon);
-    }
+    if (info) heading.append(this.createSettingsInfo(info));
     const buttons = document.createElement("div");
     buttons.className = "terminal-settings__options";
     buttons.setAttribute("role", "group");
     buttons.setAttribute("aria-label", title);
-    const controls = options.map(([text, value, description]) => {
+    const controls = options.map(([text, value, description, markers]) => {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "terminal-settings__option";
       button.textContent = text;
+      const indicators = SETTINGS_LEGEND.filter(([key]) => markers?.[key]);
+      if (indicators.length) {
+        const indicator = document.createElement("span");
+        indicator.className = "terminal-settings__markers";
+        indicator.setAttribute("aria-hidden", "true");
+        indicator.textContent = indicators.map(([, symbol]) => symbol).join("");
+        button.append(indicator);
+        button.setAttribute(
+          "aria-label",
+          [text, ...indicators.map(([, , label]) => label)].join(", "),
+        );
+      }
       if (description) this.bindSettingsTooltip(button, description);
       button.setAttribute("aria-pressed", String(getValue() === value));
       button.addEventListener("click", () => {
@@ -616,6 +656,16 @@ export class WorkspaceRail {
         );
       },
     };
+  }
+
+  private createSettingsInfo(description: string) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "terminal-settings__info";
+    button.setAttribute("aria-label", description);
+    button.append(createIcon("info"));
+    this.bindSettingsTooltip(button, description);
+    return button;
   }
 
   private bindSettingsTooltip(anchor: HTMLElement, description: string) {
