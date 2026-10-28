@@ -330,6 +330,20 @@ test("a new protected terminal can use the native attach transport", async (t) =
   assert.equal(metadata.transport, "attach");
   assert.equal(metadata.degraded, undefined);
   assert.ok(metadata.backendSessionId);
+  assert.equal(
+    (
+      await exec("tmux", [
+        "-L",
+        "gaogrid",
+        "show-options",
+        "-wv",
+        "-t",
+        `=${metadata.backendSessionId}:0`,
+        "mouse",
+      ])
+    ).stdout.trim(),
+    "on",
+  );
   manager.input("attach", "printf 'ATTACH_%s\\n' MODE\r");
   await until(() => manager.output("attach")?.includes("ATTACH_MODE") || false);
   assert.deepEqual(h.errors, []);

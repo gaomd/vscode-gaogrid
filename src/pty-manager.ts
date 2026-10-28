@@ -205,6 +205,10 @@ export class PtyManager {
           }
         }
         if (pane) await this.tmux.configure();
+        await this.tmux.configureMouse(
+          metadata.backendSessionId!,
+          metadata.transport === "attach",
+        );
         if (pane && metadata.transport === "attach")
           prefix = await this.tmux.history(
             metadata.backendSessionId!,
@@ -278,6 +282,7 @@ export class PtyManager {
     const id = metadata.backendSessionId!;
     if (!(await this.tmux.inspect(id)))
       throw new Error("Protected session is no longer available.");
+    await this.tmux.configureMouse(id, true);
     const prefix = await this.tmux.history(id, size.rows);
     const session = this.spawnClient(
       sessionId,
@@ -830,6 +835,10 @@ export class PtyManager {
     try {
       if (!(await this.tmux.inspect(metadata.backendSessionId)))
         throw new Error("Protected session is no longer available.");
+      await this.tmux.configureMouse(
+        metadata.backendSessionId,
+        transport === "attach",
+      );
       const cwd = metadata.cwd || previous?.cwd.cwd || "";
       const prefix =
         transport === "attach"

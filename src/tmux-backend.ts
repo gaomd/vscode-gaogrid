@@ -130,6 +130,16 @@ export class TmuxBackend {
   async configure() {
     await this.run(["source-file", this.configPath]);
   }
+  async configureMouse(id: string, enabled: boolean) {
+    await this.run([
+      "set-option",
+      "-w",
+      "-t",
+      `${this.target(id)}:0`,
+      "mouse",
+      enabled ? "on" : "off",
+    ]);
+  }
   attachArgs(id: string) {
     return this.args(["attach-session", "-t", this.target(id)]);
   }
