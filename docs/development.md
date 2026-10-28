@@ -38,6 +38,8 @@ This runs the existing `vscode:prepublish` build and creates
 `gaogrid-<version>.vsix` in the project root, using the version from `package.json`.
 Relative documentation links in the packaged README point to the `main` branch.
 To choose another output path, use `npm run package -- --out /path/to/gaogrid.vsix`.
+The prepublish hook repairs the node-pty helper's executable bit before
+packaging; the running extension never mutates files under `node_modules`.
 
 Before a release, run the development checks above, update `CHANGELOG.md`, and
 choose a version that has not been published. For example:
@@ -203,21 +205,26 @@ Planned work is tracked in the [project TODO](../README.md#todo).
 
 ### Protected Sessions
 
-`TerminalTab.backend` distinguishes `direct` and `tmux`; backend identifiers and
+`TerminalTab.backend` distinguishes `direct` and `tmux`; protected tabs also
+record `transport` as `control` or `attach`. Backend identifiers and
 creation/update timestamps live in VS Code workspace storage. `TmuxBackend` owns
 capability detection, controlled server configuration, ownership verification,
 history capture, and session creation/destruction. Every protected tab owns one
 tmux session/window/pane, independently of the GaoGrid split tree.
 
-`TmuxControlProcess` connects through tmux's control protocol. It decodes raw
+`TmuxControlProcess` connects through tmux's control protocol when control mode
+is selected, while native attach remains available as an explicit setting and
+automatic startup fallback. Control framing lives in
+`tmux-control-protocol.ts`. The process decodes raw
 `%output` records, preserving output that an ordinary attach client's screen
 redraws may coalesce. Input is encoded as literal hexadecimal bytes with
 `send-keys -H`; the control client reports size changes with `refresh-client -C`.
 Normal and alternate-screen escape sequences reach xterm directly.
 
-`TmuxOutputFilter` suppresses the direct device-attribute, status, cursor-position,
-and default-color queries that tmux already answers, preventing duplicate xterm
-replies. Queries inside tmux passthrough strings remain available to xterm.
+`TmuxOutputFilter` uses `@ansi-tools/parser` to classify control sequences rather
+than matching handwritten byte strings. It suppresses direct device-attribute,
+status, cursor-position, and default-color queries that tmux already answers.
+Queries inside tmux passthrough strings remain available to xterm.
 
 The controller serializes protection with existing creation and close mutations.
 Busy protection can create a separate tab in the original pane using the original
@@ -227,7 +234,8 @@ revision check. Input during that check is buffered. Failure leaves the direct
 PTY usable; successful promotion keeps the existing xterm and tab identity.
 
 On host recovery, an ordered control-command batch captures pane metadata,
-the saved normal screen, pending parser bytes, and the active screen with history. `tmux-snapshot.ts`
+the saved normal screen, pending parser bytes, and the active screen with up to
+10,000 history lines. `tmux-snapshot.ts`
 reconstructs those buffers and their supported input modes before subsequent
 pane output is delivered. Pending escape prefixes are prepended to the first live
 continuation. Reattachment resets the frontend before that replay;
@@ -236,8 +244,21 @@ replays the existing client buffer without detaching it. Hidden tabs receive the
 visible terminal's pane dimensions. Normal extension shutdown detaches protected
 clients; only the explicit lifecycle close path destroys their tmux sessions.
 
+The settings control above the detach button stores new-terminal defaults in user
+settings: protected or direct, control or attach, and mouse priority. Attach mode
+defers mouse handling to tmux. The default mouse policy follows libghostty:
+applications receive requested wheel events, Shift-wheel forces history, and
+Option-drag retains text selection on macOS.
+
+Control-mode initialization or protocol failure automatically falls back to
+native attach without destroying tmux. The per-process fallback marks the tab
+shield yellow and can be retried from that shield; it is not persisted through a
+VS Code restart. Missing tmux, unsupported versions, ownership failures, and
+permission errors are not downgraded. tmux 3.2a is the minimum protected-session
+version, while tmux 3.8 is the continuously verified version.
+
 Tab context menus use the shared menu controller and support Shift+F10. Protection
-controls are absent without tmux. Disconnected protected tabs retain identifiers
+controls are unavailable without a supported tmux. Disconnected protected tabs retain identifiers
 and offer reconnection. Owned orphan sessions are logged and left running.
 **Remove Protection** is available from the tab context menu. It is refused
 while a task is active; after confirmation on an idle shell, it destroys the
@@ -267,9 +288,11 @@ retain their text but currently occupy four cells, which can differ from a
 shell's or tmux's width calculation. Do not patch individual symbols to conceal
 that limitation.
 
-`TerminalOutputStore` saves bounded snapshots atomically with same-user file
-permissions under VS Code storage. `PtyManager` checkpoints direct tabs while
-output arrives and flushes on shutdown. Explicit close deletes their snapshots.
+`TerminalOutputStore` saves snapshots of up to 10 million UTF-16 code units
+atomically with same-user file permissions under VS Code storage. `PtyManager`
+checkpoints direct tabs every 30 seconds and flushes on shutdown. A snapshot
+exceeding the limit drops the oldest scrollback and reports truncation. Explicit
+close deletes their snapshots.
 Protected reattachment continues to use tmux as its authoritative recovery source.
 
 Host-to-webview data is published after its headless parse completes. Snapshot
@@ -281,7 +304,8 @@ avoids truncating a raw escape stream or losing output during the handshake.
 ### Output Flow Control
 
 Mounted terminals subscribe through `TerminalOutputStream`. A subscription starts
-with a parsed live snapshot and then receives ordered output. Unmounted tabs
+with a parsed live snapshot delivered in bounded chunks and then receives ordered
+output. Unmounted tabs
 keep only the host's parsed history; mounting requests a fresh snapshot rather
 than retaining an arbitrary raw string tail. Hidden mounted terminals still
 parse and acknowledge output without opening a renderer.
@@ -293,15 +317,18 @@ Recreating or moving the webview clears subscriptions and their pending credit,
 without restarting the PTY. Failed delivery releases credit as well.
 
 `TerminalOutputFlow` counts pending headless parsing plus unacknowledged frontend
-output. It pauses reads at 256 Ki string units and resumes at 64 Ki. Direct
-sessions pause node-pty; protected sessions pause the control client's stdout
-pipe. These are watermarks, not exact memory caps: a read may cross the
+output. It pauses reads at 32 MiB string units per terminal and resumes at 8 MiB;
+a shared 128 MiB budget pauses background terminals before the visible one.
+Direct sessions pause node-pty; protected sessions pause the control client's
+stdout pipe. These are watermarks, not exact memory caps: a read may cross the
 threshold, and a bounded snapshot can be larger. This follows the
 [xterm flow-control guide](https://xtermjs.org/docs/guides/flowcontrol/).
 Both transport tests withhold ACKs to verify application pending output stops,
 then check more than 12 MiB of resumed output for exact ordering and completeness.
 The application pending-byte bound does not establish a memory limit for tmux's
-server-side output queues while a control client is paused.
+server-side output queues while a control client is paused. Attempts to disable
+or pause the pane at this layer were rejected because tmux omits output produced
+while that client is paused.
 
 Text input remains UTF-8. xterm's public `onBinary` event travels through the same
 input channel with a binary flag; the host writes a Latin-1 `Buffer` to preserve

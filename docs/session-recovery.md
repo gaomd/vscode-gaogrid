@@ -16,18 +16,20 @@ history for a fresh shell excludes those modes and terminal queries.
 After VS Code or the Extension Host restarts, a direct terminal starts a fresh
 shell in its saved cwd. GaoGrid restores its saved rendered output first and
 shows a message to distinguish that history from the new shell. Output, colors,
-and terminal dimensions are checkpointed while the terminal runs and flushed on
-graceful shutdown. Explicit tab close removes its snapshot. Each tab retains up
-to 10,000 scrollback lines, within a 2 MB serialized snapshot limit. Images are
-not included. A forced host termination can lose output since the last
+and terminal dimensions are checkpointed every 30 seconds and flushed on graceful
+shutdown. Explicit tab close removes its snapshot. Each tab retains up to 10,000
+scrollback lines, within a 10 million-code-unit serialized snapshot limit. Images
+are not included. A forced host termination can lose output since the last
 checkpoint.
 
 ## Protected Sessions
 
-When `tmux -V` succeeds in the terminal's execution environment, right-click a
-tab and choose **Protect Session**, or use the pane's shield button. Protection
-is an explicit opt-in; create it while the shell is idle, before starting Codex,
-Claude Code, a server, or another long-running task. If a terminal is busy,
+When tmux 3.2a or newer is available in the terminal's execution environment,
+right-click a tab and choose **Protect Session**, or use the pane's shield button.
+The settings control above the detach button can make protection the default for
+new terminals and select control or attach transport. Create protection while the
+shell is idle, before starting Codex, Claude Code, a server, or another
+long-running task. If a terminal is busy,
 **Open Protected Tab** creates a separate protected tab in the same pane and
 inherits its cwd, leaving the running task untouched.
 
@@ -42,7 +44,9 @@ and uses tmux history as the recovery source. Right-click a disconnected
 protected tab to reconnect. Explicitly closing a protected tab destroys its
 session after any required task confirmation. Closing a workspace uses one
 combined confirmation. VS Code shutdown detaches and leaves protected sessions
-running.
+running. A control-mode initialization failure automatically falls back to native
+attach for the current VS Code process, marks the tab shield yellow, and can be
+retried from that shield.
 
 To remove protection, choose **Remove Protection** from the tab's context menu
 while no task is running. GaoGrid refuses while a task is active. After
@@ -53,7 +57,7 @@ destroy-and-recreate operation, not a live backend downgrade.
 
 GaoGrid uses an isolated `tmux -L gaogrid` server and its own configuration. It
 does not load `~/.tmux.conf` or touch the user's normal tmux server. If tmux is
-unavailable, protection controls are omitted and direct terminals work
+unavailable or older than 3.2a, protection options are disabled and direct terminals work
 normally. In Remote SSH and Dev Containers, capability detection and tmux run in
 the workspace extension host, alongside the terminal processes.
 

@@ -45,6 +45,10 @@ Attach mode uses tmux's native mouse handling and disables the GaoGrid mouse
 policy controls. The settings remain visible when tmux is unavailable but the
 dependent options are disabled.
 
+The tab shield turns yellow only for an automatic transport downgrade and can be
+activated to retry control mode. A failed explicit display refresh adds a
+separate refresh indicator.
+
 ## Interaction baseline
 
 - Normal-screen wheel input scrolls GaoGrid history.
@@ -58,8 +62,10 @@ dependent options are disabled.
 ## Resource limits
 
 - Unconsumed output may grow to 32 MiB per terminal and 128 MiB globally.
-- At the global limit, background tmux panes pause first; the visible terminal
-  remains responsive. Paused output is resumed rather than dropped.
+- At the global limit, background transports pause first; the visible terminal
+  remains responsive. The current control transport pauses its stdout pipe,
+  which preserves ordering but cannot prove a hard memory bound for tmux's
+  server-side queue.
 - Large pasted input may temporarily grow the input queue without an additional
   hard cap.
 
@@ -70,3 +76,16 @@ dependent options are disabled.
 - OSC 52 clipboard writes, which remain tracked as a TODO.
 - A complete terminal-state mirror. Only low-complexity state exposed natively
   by tmux is restored.
+
+## Implementation notes
+
+- Control-mode framing is isolated in `tmux-control-protocol.ts`.
+- Query routing uses the zero-dependency `@ansi-tools/parser` package and keeps
+  DCS passthrough opaque.
+- The last 64 KiB of raw output is retained only as a compatibility diagnostic
+  tail; recovery and scrolling use parsed history or tmux's capture.
+- tmux 3.2a is the protected-session minimum. Continuous automation targets tmux
+  3.8.
+- A UTF-8 code point split before a new control client attaches remains a known
+  limitation. After output settles, reconnecting reads the authoritative tmux
+  screen and repairs the displayed cells.
