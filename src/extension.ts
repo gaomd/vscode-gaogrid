@@ -390,7 +390,6 @@ export function activate(context: vscode.ExtensionContext) {
       enableScripts: true,
       localResourceRoots: [
         vscode.Uri.file(path.join(context.extensionPath, "dist")),
-        vscode.Uri.file(path.join(context.extensionPath, "node_modules")),
       ],
     };
     webviewView.onDidDispose(() => {
@@ -1041,18 +1040,6 @@ function getHtml(webview: vscode.Webview, context: vscode.ExtensionContext) {
   const script = webview.asWebviewUri(
     vscode.Uri.file(path.join(context.extensionPath, "dist", "webview.js")),
   );
-  const xtermCss = webview.asWebviewUri(
-    vscode.Uri.file(
-      path.join(
-        context.extensionPath,
-        "node_modules",
-        "@xterm",
-        "xterm",
-        "css",
-        "xterm.css",
-      ),
-    ),
-  );
   const styles = webview.asWebviewUri(
     vscode.Uri.file(path.join(context.extensionPath, "dist", "webview.css")),
   );
@@ -1063,7 +1050,6 @@ function getHtml(webview: vscode.Webview, context: vscode.ExtensionContext) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; font-src ${webview.cspSource}; img-src ${webview.cspSource} data:; script-src 'nonce-${nonce}';">
-    <link rel="stylesheet" href="${xtermCss}">
     <link rel="stylesheet" href="${styles}">
   </head>
   <body>

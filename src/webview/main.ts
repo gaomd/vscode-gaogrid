@@ -2,6 +2,7 @@ import type { PersistedState } from "../model";
 import { TerminalFrontend } from "./terminal-frontend";
 import { WorkspaceController } from "./workspace-controller";
 import { resolveShortcut } from "./shortcuts";
+import "@xterm/xterm/css/xterm.css";
 import "./style.css";
 import type { LifecycleRequest, LifecycleResult } from "../terminal-protocol";
 import { normalizeTerminalColors } from "../terminal-colors";
