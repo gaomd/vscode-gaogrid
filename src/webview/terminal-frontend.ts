@@ -45,7 +45,10 @@ export class TerminalFrontend {
   private readonly closedSessions = new Set<string>();
   private frame?: number;
   private focusRequest = 0;
-  private useWebgl = true;
+  // xterm's WebGL glyph atlas can be lost or corrupted under GPU pressure.
+  // Prefer the stable DOM renderer unless the user explicitly opts in.
+  private useWebgl = false;
+  private renderSignature?: string;
   private mousePolicy: MousePolicy = "application";
   private readonly resizeObserver = new ResizeObserver(() =>
     this.scheduleFit(),
@@ -59,6 +62,12 @@ export class TerminalFrontend {
     };
     void document.fonts.ready.then(refreshFonts);
     document.fonts.addEventListener("loadingdone", refreshFonts);
+    const recoverRenderer = () =>
+      requestAnimationFrame(() => this.repaintVisibleSurfaces());
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) recoverRenderer();
+    });
+    window.addEventListener("focus", recoverRenderer);
     // VS Code can inject theme variables after the configuration message arrives.
     const themeObserver = new MutationObserver(() => this.applySettings());
     themeObserver.observe(document.body, {
@@ -143,6 +152,16 @@ export class TerminalFrontend {
       disposeInput: installTerminalInput(terminal, host),
     };
     this.surfaces.set(tab.id, surface);
+    host.addEventListener("focusin", () => this.repaintSurface(surface));
+    host.addEventListener("focusout", (event) => {
+      if (
+        typeof Node !== "undefined" &&
+        event.relatedTarget instanceof Node &&
+        host.contains(event.relatedTarget)
+      )
+        return;
+      requestAnimationFrame(() => this.refreshSurface(surface));
+    });
     terminal.attachCustomWheelEventHandler((event) =>
       this.handleWheel(surface, event),
     );
@@ -306,6 +325,7 @@ export class TerminalFrontend {
         const surface = this.surfaces.get(tabId);
         if (!surface || !this.isVisible(surface)) return;
         this.fitVisible();
+        this.repaintSurface(surface);
         surface.terminal.focus();
         surface.terminal.textarea?.focus({ preventScroll: true });
       }),
@@ -386,12 +406,15 @@ export class TerminalFrontend {
 
   private fitVisible() {
     for (const surface of this.surfaces.values()) {
-      if (!this.isVisible(surface) || surface.replaying) continue;
+      if (!this.isVisible(surface)) continue;
       if (!surface.opened) {
         surface.terminal.open(surface.host);
         surface.opened = true;
         this.updateRenderer(surface);
       }
+      // Replay can take multiple writes. Open the focusable textarea
+      // immediately, but defer fitting until the screen is stable.
+      if (surface.replaying) continue;
       surface.fit.fit();
       for (const hidden of this.surfaces.values()) {
         if (
@@ -403,6 +426,21 @@ export class TerminalFrontend {
       }
       surface.terminal.refresh(0, surface.terminal.rows - 1);
     }
+  }
+
+  private repaintSurface(surface: TerminalSurface) {
+    if (!surface.opened || !this.isVisible(surface)) return;
+    surface.terminal.clearTextureAtlas();
+    this.refreshSurface(surface);
+  }
+
+  private refreshSurface(surface: TerminalSurface) {
+    if (!surface.opened || !this.isVisible(surface)) return;
+    surface.terminal.refresh(0, Math.max(0, surface.terminal.rows - 1));
+  }
+
+  private repaintVisibleSurfaces() {
+    for (const surface of this.surfaces.values()) this.repaintSurface(surface);
   }
 
   private updateRenderer(surface: TerminalSurface) {
@@ -432,7 +470,7 @@ export class TerminalFrontend {
 
   applySettings(settings?: Record<string, unknown>) {
     if (settings) {
-      const useWebgl = settings.gpuAcceleration !== "off";
+      const useWebgl = settings.gpuAcceleration === "on";
       if (useWebgl !== this.useWebgl) {
         this.useWebgl = useWebgl;
         for (const surface of this.surfaces.values()) {
@@ -455,7 +493,21 @@ export class TerminalFrontend {
     const options = readTerminalOptions();
     const colors = normalizeTerminalColors(options.theme);
     if (colors) this.send({ type: "terminalColors", colors });
+    const signature = JSON.stringify({
+      theme: options.theme,
+      fontFamily: options.fontFamily,
+      fontSize: options.fontSize,
+      fontWeight: options.fontWeight,
+      fontWeightBold: options.fontWeightBold,
+      lineHeight: options.lineHeight,
+      letterSpacing: options.letterSpacing,
+      minimumContrastRatio: options.minimumContrastRatio,
+    });
+    const renderChanged =
+      this.renderSignature !== undefined && this.renderSignature !== signature;
+    this.renderSignature = signature;
     for (const { terminal, fontSizeOverride } of this.surfaces.values()) {
+      if (renderChanged) terminal.clearTextureAtlas();
       terminal.options.theme = options.theme;
       terminal.options.fontFamily = options.fontFamily;
       terminal.options.fontSize = fontSizeOverride ?? options.fontSize;

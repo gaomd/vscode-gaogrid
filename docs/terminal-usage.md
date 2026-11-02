@@ -41,6 +41,10 @@ sends a distinct key sequence so Codex can insert a newline without submitting
 the prompt. Terminal fonts and colors follow VS Code's terminal settings and
 current theme.
 
+GaoGrid uses xterm's DOM renderer by default to avoid WebGL glyph-atlas
+corruption under GPU pressure. Set `terminal.integrated.gpuAcceleration` to
+`on` explicitly to opt into WebGL.
+
 ## Splitting Panes
 
 Both shortcut families create a new terminal on the requested side of the focused
