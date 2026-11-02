@@ -2,6 +2,26 @@
 
 All notable changes to GaoGrid are documented here.
 
+## [0.7.0] - 2026-11-02
+
+### Features
+
+- Add a Transfer panel above terminal settings for importing or moving
+  GaoGrid-owned tmux sessions between Extension Host instances. Sessions are
+  grouped by running, idle, or unknown state, ordered by recent focus, and can
+  be dragged into a pane tab strip or split.
+- Attach all running transfer sessions as tabs in a new workspace and clean up
+  idle transfer sessions individually or as a group.
+
+### Fixes
+
+- Rebuild the terminal glyph atlas when focus, window visibility, or terminal
+  settings change, preventing stale WebGL glyphs from corrupting visible text.
+- Use the stable DOM renderer for automatic and off GPU-acceleration settings;
+  WebGL now requires an explicit `terminal.integrated.gpuAcceleration: "on"`.
+- Open replayed terminals before restoring focus so newly created tabs receive
+  keyboard focus reliably.
+
 ## [0.6.2] - 2026-10-29
 
 ### Features
