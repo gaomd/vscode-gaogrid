@@ -19,6 +19,16 @@ export interface NewTerminalOptions {
 
 export type TerminalTransport = "control" | "attach";
 export type MousePolicy = "application" | "terminal" | "exclusive";
+export type TransferActivity = "running" | "idle" | "unknown";
+
+export interface TransferSession {
+  backendSessionId: string;
+  cwd: string;
+  command: string;
+  activity: TransferActivity;
+  attached: boolean;
+  lastFocusedAt: number;
+}
 
 export interface TerminalPreferences {
   defaultProtected: boolean;
@@ -45,6 +55,20 @@ export type LifecycleRequest =
   | { kind: "reconnectDisplay"; sessionId: string }
   | { kind: "unprotect"; sessionId: string }
   | {
+      kind: "listTransferSessions";
+      knownBackendSessionIds: string[];
+    }
+  | {
+      kind: "importTransferSession";
+      sessionId: string;
+      backendSessionId: string;
+      transport: TerminalTransport;
+    }
+  | {
+      kind: "cleanupTransferSessions";
+      backendSessionIds: string[];
+    }
+  | {
       kind: "close";
       scope: CloseScope;
       title?: string;
@@ -52,7 +76,7 @@ export type LifecycleRequest =
     };
 
 export type LifecycleResult =
-  string | boolean | TerminalMetadata | "openProtectedTab";
+  string | boolean | TerminalMetadata | TransferSession[] | "openProtectedTab";
 
 export interface TerminalMetadata {
   cwd: string;

@@ -101,6 +101,17 @@ is disabled while GaoGrid is detached, and `⌘X` keeps its normal behavior ther
 Floating windows require support from the editor; the detach button is hidden
 when unavailable.
 
+## Transferring tmux Sessions
+
+Open the Transfer button above terminal settings to see protected GaoGrid
+sessions that are not in the current window. Running sessions are listed before
+idle shells and are sorted by recent focus. Drag one onto a pane's tab strip or
+terminal surface, or click it to import into the focused pane. The panel remains
+open while workspace shortcuts change the visible workspace. **Attach All** on
+the Running group creates a new workspace with those sessions as tabs when fewer
+than nine workspaces exist. Idle sessions expose individual cleanup controls and
+a group **Clean Up** action.
+
 ## Working Directory
 
 New tabs and split panes start in the active terminal's current directory. If it

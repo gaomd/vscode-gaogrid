@@ -507,11 +507,14 @@ export function activate(context: vscode.ExtensionContext) {
           );
           break;
         case "activeTerminal":
-          manager.setForeground(
-            typeof message.sessionId === "string"
-              ? message.sessionId
-              : undefined,
-          );
+          {
+            const sessionId =
+              typeof message.sessionId === "string"
+                ? message.sessionId
+                : undefined;
+            manager.setForeground(sessionId);
+            if (sessionId) manager.markFocused(sessionId);
+          }
           break;
         case "preferences":
           await updateTerminalPreferences(message.preferences);
@@ -630,6 +633,100 @@ export function activate(context: vscode.ExtensionContext) {
                   value = (await manager.unprotect(tab.sessionId)) || false;
                   await persist();
                 } else value = false;
+              }
+            } else if (request.kind === "listTransferSessions") {
+              value = await manager.transferSessions(
+                new Set(
+                  request.knownBackendSessionIds.filter(
+                    (id): id is string => typeof id === "string",
+                  ),
+                ),
+              );
+            } else if (
+              request.kind === "importTransferSession" &&
+              typeof request.sessionId === "string" &&
+              typeof request.backendSessionId === "string"
+            ) {
+              const backendIds = state.workspaces
+                .flatMap((workspace) => getTabs(workspace.root))
+                .flatMap((tab) =>
+                  tab.backend === "tmux" && tab.backendSessionId
+                    ? [tab.backendSessionId]
+                    : [],
+                );
+              if (backendIds.includes(request.backendSessionId))
+                throw new Error("That tmux session is already in GaoGrid.");
+              const session = (await manager.transferSessions(new Set())).find(
+                (item) => item.backendSessionId === request.backendSessionId,
+              );
+              if (!session)
+                throw new Error(
+                  "Transferred tmux session is no longer available.",
+                );
+              if (session.attached)
+                await manager.tmux.detachClients(request.backendSessionId);
+              value =
+                (await manager.importTransferSession(
+                  request.sessionId,
+                  request.backendSessionId,
+                  request.transport,
+                )) || false;
+              if (value) await persist();
+            } else if (request.kind === "cleanupTransferSessions") {
+              const requested = new Set(
+                request.backendSessionIds.filter(
+                  (id): id is string => typeof id === "string",
+                ),
+              );
+              const known = new Set(
+                state.workspaces
+                  .flatMap((workspace) => getTabs(workspace.root))
+                  .flatMap((tab) =>
+                    tab.backend === "tmux" && tab.backendSessionId
+                      ? [tab.backendSessionId]
+                      : [],
+                  ),
+              );
+              const idle = (await manager.transferSessions(known)).filter(
+                (session) =>
+                  requested.has(session.backendSessionId) &&
+                  session.activity === "idle",
+              );
+              if (!idle.length) {
+                void vscode.window.showInformationMessage(
+                  "No idle tmux sessions are available to clean up.",
+                );
+                value = false;
+              } else {
+                const action = "Clean Up";
+                const selected = await vscode.window.showWarningMessage(
+                  `Clean up ${idle.length} idle tmux session${idle.length === 1 ? "" : "s"}?`,
+                  {
+                    modal: true,
+                    detail:
+                      idle
+                        .slice(0, 8)
+                        .map(
+                          (session) =>
+                            `${session.command || "tmux"}: ${session.cwd}`,
+                        )
+                        .join("\n") +
+                      (idle.length > 8
+                        ? `\n…and ${idle.length - 8} more`
+                        : "") +
+                      "\n\nThis permanently terminates the idle shells. Running and unknown sessions are not included.",
+                  },
+                  action,
+                );
+                if (selected !== action) value = false;
+                else {
+                  await Promise.all(
+                    idle.map((session) =>
+                      manager.tmux.destroy(session.backendSessionId),
+                    ),
+                  );
+                  value = true;
+                }
               }
             } else if (request.kind === "close") {
               value = await lifecycle.requestClose(request);

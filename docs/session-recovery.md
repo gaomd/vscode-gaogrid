@@ -67,5 +67,30 @@ reports that the prior session ended. It never automatically resumes Codex or
 Claude. Direct sessions remain the preferred choice when maximum graphics
 compatibility is needed.
 
+## Transfer Sessions
+
+The Transfer button above terminal settings lists GaoGrid-owned tmux sessions
+that are not already part of the current Extension Host. Running sessions appear
+before idle shells, and each group is ordered by the most recent GaoGrid focus
+or, when unavailable, tmux's last attachment and activity timestamps.
+
+Drag an entry onto a pane's tab strip to insert it as a tab, or onto the terminal
+surface to create a split. Clicking an entry instead imports it into the focused
+pane. The Transfer panel stays open while workspaces and panes are navigated, so
+the destination can be selected before dropping the session.
+
+Running entries include **Attach All**, which creates a new workspace with the
+running sessions laid out as tabs in one pane. The action is available only while
+fewer than nine workspaces exist and no more than nine running sessions are
+listed. Idle entries include individual cleanup controls and a group **Clean Up**
+action. Cleanup rechecks activity, asks for confirmation, and permanently ends
+only the selected idle shells.
+
+If the tmux session is still attached in another window, importing it detaches
+that window's display client and attaches the current instance; the tmux process
+and any running Codex, Claude, server, or shell job continue. Transfer discovery
+only includes sessions carrying GaoGrid's ownership marker in the isolated
+`tmux -L gaogrid` server, on the current machine and extension environment.
+
 For implementation and tested protocol details, see
 [protected session compatibility](protected-sessions.md).

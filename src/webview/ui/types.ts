@@ -1,5 +1,6 @@
 import type {
   TerminalPreferences,
+  TransferSession,
   WindowPresentation,
 } from "../../terminal-protocol";
 
@@ -15,6 +16,22 @@ export interface WorkspaceActions {
   protectionAvailable(): boolean;
   terminalPreferences(): TerminalPreferences;
   updatePreferences(preferences: TerminalPreferences): void;
+  transferSessions(): readonly TransferSession[];
+  refreshTransferSessions(): void;
+  importTransferSessionToFocusedPane(backendSessionId: string): void;
+  moveTransferSessionToPane(
+    backendSessionId: string,
+    targetPaneId: string,
+    targetIndex?: number,
+  ): void;
+  splitTransferSessionIntoPane(
+    backendSessionId: string,
+    targetPaneId: string,
+    side: DropSide,
+  ): void;
+  cleanupTransferSessions(backendSessionIds: string[]): void;
+  canAttachTransfersToNewWorkspace(count: number): boolean;
+  attachTransfersToNewWorkspace(backendSessionIds: string[]): void;
   protectTab(paneId: string, tabId: string): void;
   retryProtectedTab(paneId: string, tabId: string): void;
   unprotectTab(paneId: string, tabId: string): void;

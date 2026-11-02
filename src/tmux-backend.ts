@@ -1,7 +1,7 @@
 import { execFile } from "child_process";
 import { promisify } from "util";
 import { randomUUID } from "crypto";
-import type { BackendCapabilities } from "./terminal-protocol";
+import type { BackendCapabilities, TransferSession } from "./terminal-protocol";
 import { TERMINAL_HISTORY_LINES } from "./terminal-constants";
 
 const exec = promisify(execFile);
@@ -18,6 +18,10 @@ export interface TmuxPane {
   pid: number;
   cwd: string;
 }
+
+export type TmuxOwnedSession = Omit<TransferSession, "activity"> & {
+  pid: number;
+};
 
 /** Only this server namespace and explicitly marked UUID sessions are ours. */
 export class TmuxBackend {
@@ -101,6 +105,94 @@ export class TmuxBackend {
     if (owner !== OWNER || !/^\d+$/.test(pid))
       throw new Error("Protected session ownership could not be verified.");
     return { pid: +pid, cwd: cwd.join("\n") };
+  }
+  async listOwnedSessions(): Promise<TmuxOwnedSession[]> {
+    let listing: string;
+    try {
+      listing = await this.run(["list-sessions", "-F", "#{session_name}"]);
+    } catch (error) {
+      if (missing(error)) return [];
+      throw error;
+    }
+    const sessions = await Promise.all(
+      listing
+        .split("\n")
+        .filter((id) => OWNED_ID.test(id))
+        .map(async (id): Promise<TmuxOwnedSession | undefined> => {
+          try {
+            const output = await this.run([
+              "display-message",
+              "-p",
+              "-t",
+              `${this.target(id)}:0.0`,
+              [
+                "#{@gaogrid-owner}",
+                "#{pane_pid}",
+                "#{pane_current_command}",
+                "#{session_activity}",
+                "#{session_created}",
+                "#{session_attached}",
+                "#{session_last_attached}",
+                "#{@gaogrid-last-focus}",
+                "#{pane_current_path}",
+              ].join("\n"),
+            ]);
+            const lines = output.replace(/\n$/, "").split("\n");
+            const [
+              owner,
+              pid,
+              command,
+              activity,
+              created,
+              attached,
+              lastAttached,
+              lastFocused,
+              ...cwd
+            ] = lines;
+            if (owner !== OWNER || !/^\d+$/.test(pid || "")) return;
+            const timestamp = (value: string | undefined) =>
+              value && /^\d+$/.test(value) ? +value : 0;
+            return {
+              backendSessionId: id,
+              pid: +pid,
+              cwd: cwd.join("\n"),
+              command: command || "",
+              attached: timestamp(attached) > 0,
+              lastFocusedAt:
+                timestamp(lastFocused) ||
+                Math.max(
+                  timestamp(lastAttached),
+                  timestamp(activity),
+                  timestamp(created),
+                ),
+            };
+          } catch (error) {
+            if (missing(error)) return;
+            throw error;
+          }
+        }),
+    );
+    return sessions.filter((session): session is TmuxOwnedSession => !!session);
+  }
+  async markFocused(id: string) {
+    if (!OWNED_ID.test(id)) return;
+    await this.run([
+      "set-option",
+      "-t",
+      id,
+      "@gaogrid-last-focus",
+      String(Math.floor(Date.now() / 1000)),
+    ]);
+  }
+  async detachClients(id: string) {
+    if (!OWNED_ID.test(id)) return;
+    try {
+      await this.run(["detach-client", "-s", this.target(id)]);
+    } catch (error) {
+      if (missing(error) || /no current client|no clients/i.test(String(error)))
+        return;
+      throw error;
+    }
   }
   async create(cwd: string, shell: string, cols: number, rows: number) {
     const id = `gaogrid-${randomUUID()}`;

@@ -33,6 +33,7 @@ import type {
   BackendCapabilities,
   WindowPresentation,
   TerminalPreferences,
+  TransferSession,
 } from "../terminal-protocol";
 
 interface WorkspaceBridge {
@@ -65,6 +66,13 @@ const makePane = (cwd: string): PaneNode => {
     lastKnownCwd: cwd,
   };
 };
+const isTerminalMetadata = (
+  value: LifecycleResult,
+): value is TerminalMetadata =>
+  !!value &&
+  typeof value === "object" &&
+  !Array.isArray(value) &&
+  "backend" in value;
 
 /** Coordinates workspace state and UI intent; the view never persists state. */
 export class WorkspaceController {
@@ -83,6 +91,7 @@ export class WorkspaceController {
     canMaximize: false,
     transitioning: false,
   };
+  private transfers: TransferSession[] = [];
   private mutations: Promise<void> = Promise.resolve();
   private lastDistribution?: {
     workspaceId: string;
@@ -126,6 +135,27 @@ export class WorkspaceController {
         this.view.update(this.state);
         this.bridge.send({ type: "preferences", preferences });
       },
+      transferSessions: () => this.transfers,
+      refreshTransferSessions: () => this.refreshTransferSessions(),
+      importTransferSessionToFocusedPane: (backendSessionId) => {
+        const pane = this.focusedPane();
+        if (pane)
+          this.moveTransferSessionToPane(
+            backendSessionId,
+            pane.id,
+            pane.tabs.length,
+          );
+      },
+      moveTransferSessionToPane: (backendSessionId, paneId, targetIndex) =>
+        this.moveTransferSessionToPane(backendSessionId, paneId, targetIndex),
+      splitTransferSessionIntoPane: (backendSessionId, paneId, side) =>
+        this.splitTransferSessionIntoPane(backendSessionId, paneId, side),
+      cleanupTransferSessions: (backendSessionIds) =>
+        this.cleanupTransferSessions(backendSessionIds),
+      canAttachTransfersToNewWorkspace: (count) =>
+        this.canAttachTransfersToNewWorkspace(count),
+      attachTransfersToNewWorkspace: (backendSessionIds) =>
+        this.attachTransfersToNewWorkspace(backendSessionIds),
       protectTab: (paneId, tabId) => this.protectTab(paneId, tabId),
       retryProtectedTab: (paneId, tabId) =>
         this.retryProtectedTab(paneId, tabId),
@@ -545,7 +575,7 @@ export class WorkspaceController {
         workspace.focusedPaneId = pane.id;
         this.commit();
         this.startTab(tab);
-      } else if (value && typeof value === "object") {
+      } else if (isTerminalMetadata(value)) {
         this.updateTerminal(source.sessionId, value);
         this.commit();
       } else this.terminals.focus(source.id);
@@ -562,8 +592,7 @@ export class WorkspaceController {
         kind: "reconnectDisplay",
         sessionId: tab.sessionId,
       });
-      if (value && typeof value === "object")
-        this.updateTerminal(tab.sessionId, value);
+      if (isTerminalMetadata(value)) this.updateTerminal(tab.sessionId, value);
     });
   }
 
@@ -579,10 +608,217 @@ export class WorkspaceController {
         kind: "unprotect",
         sessionId: tab.sessionId,
       });
-      if (value && typeof value === "object") {
+      if (isTerminalMetadata(value)) {
         this.updateTerminal(tab.sessionId, value);
         this.commit();
       }
+    });
+  }
+
+  private refreshTransferSessions() {
+    this.enqueue(async () => {
+      if (!this.capabilities.tmux.available) {
+        this.transfers = [];
+        return;
+      }
+      const knownBackendSessionIds = this.state.workspaces
+        .flatMap((workspace) => getTabs(workspace.root))
+        .flatMap((tab) =>
+          tab.backend === "tmux" && tab.backendSessionId
+            ? [tab.backendSessionId]
+            : [],
+        );
+      const value = await this.bridge.request({
+        kind: "listTransferSessions",
+        knownBackendSessionIds,
+      });
+      if (Array.isArray(value)) {
+        this.transfers = value.filter(
+          (session): session is TransferSession =>
+            !!session && typeof session === "object",
+        );
+        this.view.update(this.state);
+      }
+    });
+  }
+
+  private async claimTransferSession(
+    backendSessionId: string,
+  ): Promise<TerminalTab | undefined> {
+    const transfer = this.transfers.find(
+      (session) => session.backendSessionId === backendSessionId,
+    );
+    if (!transfer) return;
+    const sessionId = id();
+    const value = await this.bridge.request({
+      kind: "importTransferSession",
+      sessionId,
+      backendSessionId,
+      transport: this.preferences.transport,
+    });
+    if (!isTerminalMetadata(value)) return;
+    const metadata = value;
+    const tab = makeTab(metadata.cwd || transfer.cwd);
+    tab.sessionId = sessionId;
+    tab.title = transfer.command || "tmux session";
+    tab.profile = metadata.profile;
+    tab.backend = "tmux";
+    tab.backendSessionId = metadata.backendSessionId || backendSessionId;
+    tab.connectionState = metadata.connectionState;
+    tab.transport = metadata.transport;
+    tab.createdAt = metadata.createdAt;
+    tab.updatedAt = metadata.updatedAt;
+    this.transfers = this.transfers.filter(
+      (session) => session.backendSessionId !== backendSessionId,
+    );
+    return tab;
+  }
+
+  private moveTransferSessionToPane(
+    backendSessionId: string,
+    targetPaneId: string,
+    targetIndex?: number,
+  ) {
+    this.enqueue(async () => {
+      const targetWorkspace = this.state.workspaces.find((workspace) =>
+        findPane(workspace.root, targetPaneId),
+      );
+      const targetPane = findPane(targetWorkspace?.root || null, targetPaneId);
+      if (
+        !targetWorkspace ||
+        !targetPane ||
+        targetPane.tabs.length >= MAX_TABS_PER_PANE
+      )
+        return;
+      const tab = await this.claimTransferSession(backendSessionId);
+      if (!tab) return;
+      targetPane.tabs.splice(
+        Math.max(
+          0,
+          Math.min(
+            targetIndex ?? targetPane.tabs.length,
+            targetPane.tabs.length,
+          ),
+        ),
+        0,
+        tab,
+      );
+      targetPane.activeTabId = tab.id;
+      targetPane.lastKnownCwd = tab.cwd;
+      targetWorkspace.focusedPaneId = targetPane.id;
+      this.state.activeWorkspaceId = targetWorkspace.id;
+      this.commit();
+    });
+  }
+
+  private splitTransferSessionIntoPane(
+    backendSessionId: string,
+    targetPaneId: string,
+    side: DropSide,
+  ) {
+    this.enqueue(async () => {
+      const targetWorkspace = this.state.workspaces.find((workspace) =>
+        findPane(workspace.root, targetPaneId),
+      );
+      const targetPane = findPane(targetWorkspace?.root || null, targetPaneId);
+      if (
+        !targetWorkspace ||
+        !targetPane ||
+        !canSplitPane(targetWorkspace.root, targetPane.id)
+      )
+        return;
+      const tab = await this.claimTransferSession(backendSessionId);
+      if (!tab) return;
+      const fresh: PaneNode = {
+        type: "pane",
+        id: id(),
+        activeTabId: tab.id,
+        tabs: [tab],
+        lastKnownCwd: tab.cwd,
+      };
+      const before = side === "left" || side === "top";
+      const horizontal = side === "left" || side === "right";
+      const split: SplitNode = {
+        type: "split",
+        id: id(),
+        direction: horizontal ? "horizontal" : "vertical",
+        ratio: 0.5,
+        first: before ? fresh : targetPane,
+        second: before ? targetPane : fresh,
+      };
+      targetWorkspace.root = replaceNode(
+        targetWorkspace.root || targetPane,
+        targetPane.id,
+        split,
+      );
+      targetWorkspace.focusedPaneId = fresh.id;
+      this.state.activeWorkspaceId = targetWorkspace.id;
+      this.commit();
+    });
+  }
+
+  private cleanupTransferSessions(backendSessionIds: string[]) {
+    const selected = new Set(backendSessionIds);
+    const requested = this.transfers
+      .filter(
+        (session) =>
+          selected.has(session.backendSessionId) && session.activity === "idle",
+      )
+      .map((session) => session.backendSessionId);
+    if (!requested.length) return;
+    this.enqueue(async () => {
+      const value = await this.bridge.request({
+        kind: "cleanupTransferSessions",
+        backendSessionIds: requested,
+      });
+      if (value !== true) return;
+      const removed = new Set(requested);
+      this.transfers = this.transfers.filter(
+        (session) => !removed.has(session.backendSessionId),
+      );
+      this.view.update(this.state);
+    });
+  }
+
+  private canAttachTransfersToNewWorkspace(count: number) {
+    return (
+      count > 0 &&
+      count <= MAX_TABS_PER_PANE &&
+      this.state.workspaces.length < MAX_WORKSPACES
+    );
+  }
+
+  private attachTransfersToNewWorkspace(backendSessionIds: string[]) {
+    const requested = [...new Set(backendSessionIds)];
+    const running = this.transfers.filter(
+      (session) =>
+        requested.includes(session.backendSessionId) &&
+        session.activity === "running",
+    );
+    if (!this.canAttachTransfersToNewWorkspace(running.length)) return;
+    this.enqueue(async () => {
+      const tabs: TerminalTab[] = [];
+      for (const session of running) {
+        const tab = await this.claimTransferSession(session.backendSessionId);
+        if (tab) tabs.push(tab);
+      }
+      if (!tabs.length) return;
+      const pane: PaneNode = {
+        type: "pane",
+        id: id(),
+        activeTabId: tabs[0].id,
+        tabs,
+        lastKnownCwd: tabs[0].cwd,
+      };
+      const workspace: Workspace = {
+        id: id(),
+        name: `^${this.state.workspaces.length + 1}`,
+        root: pane,
+        focusedPaneId: pane.id,
+      };
+      this.state.workspaces.push(workspace);
+      this.state.activeWorkspaceId = workspace.id;
+      this.commit();
     });
   }
 

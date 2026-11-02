@@ -10,9 +10,10 @@ import {
   clearAllInsertionMarkers,
   clearInsertionMarker,
   dropSideAt,
-  isTabDrag,
+  isTerminalDrag,
   showInsertionMarker,
   readDraggedTab,
+  readDraggedTransfer,
   writeDraggedTab,
 } from "./tab-drag";
 
@@ -102,11 +103,15 @@ export class PaneView {
     this.surface.addEventListener(
       "dragover",
       (event) => {
-        if (!isTabDrag(event.dataTransfer)) return;
+        if (!isTerminalDrag(event.dataTransfer)) return;
         event.preventDefault();
         event.stopPropagation();
         const tabId = readDraggedTab(event.dataTransfer);
-        if (!tabId || !actions.canSplitTabIntoPane(tabId, this.node.id)) {
+        const transferId = readDraggedTransfer(event.dataTransfer);
+        const canDrop = transferId
+          ? actions.canSplitPane(this.node.id)
+          : !!tabId && actions.canSplitTabIntoPane(tabId, this.node.id);
+        if (!canDrop) {
           this.clearDropPreview();
           event.dataTransfer!.dropEffect = "none";
           return;
@@ -125,7 +130,7 @@ export class PaneView {
     this.surface.addEventListener(
       "dragleave",
       (event) => {
-        if (!isTabDrag(event.dataTransfer)) return;
+        if (!isTerminalDrag(event.dataTransfer)) return;
         if (
           event.relatedTarget instanceof Node &&
           this.surface.contains(event.relatedTarget)
@@ -139,7 +144,8 @@ export class PaneView {
       "drop",
       (event) => {
         const tabId = readDraggedTab(event.dataTransfer);
-        if (!tabId) return;
+        const transferId = readDraggedTransfer(event.dataTransfer);
+        if (!tabId && !transferId) return;
         event.preventDefault();
         event.stopPropagation();
         const side =
@@ -151,14 +157,21 @@ export class PaneView {
             event.clientY,
           );
         this.clearDropPreview();
-        this.actions.splitTabIntoPane(tabId, this.node.id, side);
+        if (transferId)
+          this.actions.splitTransferSessionIntoPane(
+            transferId,
+            this.node.id,
+            side,
+          );
+        else if (tabId)
+          this.actions.splitTabIntoPane(tabId, this.node.id, side);
       },
       true,
     );
     this.tabs.addEventListener(
       "dragover",
       (event) => {
-        if (!isTabDrag(event.dataTransfer)) return;
+        if (!isTerminalDrag(event.dataTransfer)) return;
         event.preventDefault();
         event.stopPropagation();
         showInsertionMarker(
@@ -176,7 +189,7 @@ export class PaneView {
     this.tabs.addEventListener(
       "dragleave",
       (event) => {
-        if (!isTabDrag(event.dataTransfer)) return;
+        if (!isTerminalDrag(event.dataTransfer)) return;
         if (
           event.relatedTarget instanceof Node &&
           this.tabs.contains(event.relatedTarget)
@@ -190,13 +203,21 @@ export class PaneView {
       "drop",
       (event) => {
         const tabId = readDraggedTab(event.dataTransfer);
-        if (!tabId) return;
+        const transferId = readDraggedTransfer(event.dataTransfer);
+        if (!tabId && !transferId) return;
         event.preventDefault();
         event.stopPropagation();
         const targetIndex = Number(this.tabs.dataset.insertionIndex || 0);
         clearInsertionMarker(this.tabs, this.tabInsertionMarker);
         clearAllInsertionMarkers();
-        this.actions.moveTabToPane(tabId, this.node.id, targetIndex);
+        if (transferId)
+          this.actions.moveTransferSessionToPane(
+            transferId,
+            this.node.id,
+            targetIndex,
+          );
+        else if (tabId)
+          this.actions.moveTabToPane(tabId, this.node.id, targetIndex);
       },
       true,
     );

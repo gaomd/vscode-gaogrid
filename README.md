@@ -27,7 +27,9 @@ run **View: Move View** → **GaoGrid** → **New Secondary Side Bar Entry**.
 
 GaoGrid saves terminal output, workspace layout, and session metadata in VS Code
 storage. For long-running processes, you can opt into tmux-backed protected
-sessions from a tab's context menu when tmux is available. See the
+sessions from a tab's context menu when tmux is available. The Transfer button
+above terminal settings can move another orphaned or detached GaoGrid tmux
+session into the current window by dragging it onto a pane. See the
 [session recovery guide](docs/session-recovery.md) for recovery behavior,
 protection, and compatibility details.
 

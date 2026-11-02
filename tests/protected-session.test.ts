@@ -613,6 +613,71 @@ for (const shell of ["/bin/bash", "/bin/zsh"]) {
   });
 }
 
+test("transfer discovery classifies live tmux sessions and reimports the same pane", async (t) => {
+  const h = await setup(t);
+  if (!h) return;
+  const manager = h.manager();
+  await manager.start("transfer", h.root, undefined, false, {
+    backend: "tmux",
+  });
+  await until(
+    () => manager.output("transfer")?.includes("TMUX_READY>") || false,
+  );
+  const metadata = manager.metadata("transfer")!;
+  const backendSessionId = metadata.backendSessionId!;
+  const pane = await manager.tmux.inspect(backendSessionId);
+  assert.ok(pane);
+
+  let listed = await manager.transferSessions(new Set());
+  let entry = listed.find(
+    (session) => session.backendSessionId === backendSessionId,
+  );
+  assert.equal(entry?.activity, "idle");
+  assert.equal(entry?.attached, true);
+
+  manager.markFocused("transfer");
+  await until(async () => {
+    listed = await manager.transferSessions(new Set());
+    entry = listed.find(
+      (session) => session.backendSessionId === backendSessionId,
+    );
+    return (entry?.lastFocusedAt || 0) > 0;
+  });
+
+  manager.input("transfer", "sleep 300\r");
+  await until(async () => {
+    listed = await manager.transferSessions(new Set());
+    return (
+      listed.find((session) => session.backendSessionId === backendSessionId)
+        ?.activity === "running"
+    );
+  });
+  await manager.tmux.detachClients(backendSessionId);
+  await until(async () => {
+    listed = await manager.transferSessions(new Set());
+    return (
+      listed.find((session) => session.backendSessionId === backendSessionId)
+        ?.attached === false
+    );
+  });
+  await manager.shutdown();
+
+  const restored = h.manager();
+  listed = await restored.transferSessions(new Set());
+  entry = listed.find(
+    (session) => session.backendSessionId === backendSessionId,
+  );
+  assert.equal(entry?.activity, "running");
+  assert.equal(entry?.attached, false);
+  const imported = await restored.importTransferSession(
+    "restored-transfer",
+    backendSessionId,
+    "control",
+  );
+  assert.equal(imported?.backendSessionId, backendSessionId);
+  assert.equal((await restored.tmux.inspect(backendSessionId))?.pid, pane.pid);
+});
+
 test("busy promotion leaves foreground/background tasks intact and supports direct protected creation", async (t) => {
   const h = await setup(t);
   if (!h) return;

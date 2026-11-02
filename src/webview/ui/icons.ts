@@ -11,6 +11,8 @@ import maximize from "@vscode/codicons/src/icons/screen-full.svg";
 import settings from "@vscode/codicons/src/icons/settings.svg";
 import refresh from "@vscode/codicons/src/icons/refresh.svg";
 import info from "@vscode/codicons/src/icons/info.svg";
+import arrowSwap from "@vscode/codicons/src/icons/arrow-swap.svg";
+import trash from "@vscode/codicons/src/icons/trash.svg";
 
 const sources = {
   shield,
@@ -26,6 +28,8 @@ const sources = {
   settings,
   refresh,
   info,
+  "arrow-swap": arrowSwap,
+  trash,
 };
 
 export type IconName = keyof typeof sources;

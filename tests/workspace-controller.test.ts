@@ -7,8 +7,15 @@ import type { TerminalFrontend } from "../src/webview/terminal-frontend";
 import type {
   LifecycleRequest,
   LifecycleResult,
+  TerminalMetadata,
+  TransferSession,
 } from "../src/terminal-protocol";
-import { getPaneDepth, getPanes, getTabs } from "../src/webview/layout";
+import {
+  findPane,
+  getPaneDepth,
+  getPanes,
+  getTabs,
+} from "../src/webview/layout";
 import { resolveShortcut } from "../src/webview/shortcuts";
 
 function pane(id: string, cwd: string): PaneNode {
@@ -85,6 +92,14 @@ function harness(initial = fixture()) {
   let protect: (
     request: LifecycleRequest,
   ) => Promise<LifecycleResult> = async () => false;
+  let transferSessions: TransferSession[] = [];
+  let importedTransfer: TerminalMetadata | false = false;
+  let importTransferHandler:
+    | ((
+        request: Extract<LifecycleRequest, { kind: "importTransferSession" }>,
+      ) => TerminalMetadata | false)
+    | undefined;
+  let cleanupResult = true;
   const focused: string[] = [];
   let close: () => Promise<boolean> = async () => true;
   const controller = new WorkspaceController(
@@ -105,6 +120,10 @@ function harness(initial = fixture()) {
       request: async (request): Promise<LifecycleResult> => {
         requests.push(request);
         if (request.kind === "close") return close();
+        if (request.kind === "listTransferSessions") return transferSessions;
+        if (request.kind === "importTransferSession")
+          return importTransferHandler?.(request) ?? importedTransfer;
+        if (request.kind === "cleanupTransferSessions") return cleanupResult;
         if (request.kind === "protect" || request.kind === "reconnect")
           return protect(request);
         const active = initial.workspaces
@@ -132,6 +151,18 @@ function harness(initial = fixture()) {
     active,
     protection: (callback: typeof protect) => {
       protect = callback;
+    },
+    transfers: (value: TransferSession[]) => {
+      transferSessions = value;
+    },
+    importedTransfer: (value: TerminalMetadata | false) => {
+      importedTransfer = value;
+    },
+    importTransferHandler: (value: typeof importTransferHandler) => {
+      importTransferHandler = value;
+    },
+    cleanupResult: (value: boolean) => {
+      cleanupResult = value;
     },
     disposed,
     focused,
@@ -258,6 +289,220 @@ test("window shortcuts respect presentation capabilities and leave detached Cmd+
   assert.deepEqual(h.sent, []);
   assert.deepEqual(h.state(), before);
   assert.deepEqual(h.disposed, []);
+});
+
+test("transfer refresh reports known protected sessions and imports at a tab index", async () => {
+  const initial = fixture();
+  const root = initial.workspaces[0].root;
+  if (!root || root.type !== "split") throw new Error("missing split fixture");
+  root.first.tabs[0].backend = "tmux";
+  root.first.tabs[0].backendSessionId = "known-session";
+  const h = harness(initial);
+  h.controller.setCapabilities({
+    tmux: { available: true, supported: true, version: "tmux 3.8" },
+  });
+  h.transfers([
+    {
+      backendSessionId: "remote-session",
+      cwd: "/remote",
+      command: "codex",
+      activity: "running",
+      attached: false,
+      lastFocusedAt: 100,
+    },
+  ]);
+  h.importedTransfer({
+    cwd: "/remote",
+    profile: "/bin/zsh",
+    backend: "tmux",
+    backendSessionId: "remote-session",
+    connectionState: "connected",
+    transport: "control",
+    createdAt: 123,
+    updatedAt: 456,
+  });
+
+  h.actions.refreshTransferSessions();
+  await settled();
+  const listRequest = h.requests.find(
+    (request) => request.kind === "listTransferSessions",
+  );
+  assert.ok(
+    listRequest?.kind === "listTransferSessions" &&
+      listRequest.knownBackendSessionIds.includes("known-session"),
+  );
+
+  h.actions.moveTransferSessionToPane("remote-session", "a", 1);
+  await settled();
+  await settled();
+  const pane = findPane(h.state().workspaces[0].root, "a");
+  assert.equal(pane?.tabs.length, 3);
+  assert.equal(pane?.tabs[1].title, "codex");
+  assert.equal(pane?.tabs[1].backend, "tmux");
+  assert.equal(pane?.tabs[1].backendSessionId, "remote-session");
+  assert.equal(pane?.tabs[1].cwd, "/remote");
+  assert.equal(pane?.activeTabId, pane?.tabs[1].id);
+  assert.equal(h.actions.transferSessions().length, 0);
+  const importRequest = h.requests.find(
+    (request) => request.kind === "importTransferSession",
+  );
+  assert.ok(
+    importRequest?.kind === "importTransferSession" &&
+      importRequest.backendSessionId === "remote-session" &&
+      importRequest.transport === "control",
+  );
+});
+
+test("a transfer session can be dragged onto a pane surface as a split", async () => {
+  const h = harness();
+  h.controller.setCapabilities({
+    tmux: { available: true, supported: true, version: "tmux 3.8" },
+  });
+  h.transfers([
+    {
+      backendSessionId: "split-session",
+      cwd: "/split",
+      command: "vim",
+      activity: "idle",
+      attached: true,
+      lastFocusedAt: 200,
+    },
+  ]);
+  h.importedTransfer({
+    cwd: "/split",
+    profile: "/bin/zsh",
+    backend: "tmux",
+    backendSessionId: "split-session",
+    connectionState: "connected",
+    transport: "control",
+  });
+  h.actions.refreshTransferSessions();
+  await settled();
+
+  h.actions.splitTransferSessionIntoPane("split-session", "a", "right");
+  await settled();
+  await settled();
+  const root = h.state().workspaces[0].root;
+  assert.equal(root?.type, "split");
+  assert.ok(
+    root?.type === "split" &&
+      root.first.type === "split" &&
+      root.first.second.type === "pane" &&
+      root.first.second.tabs[0].backendSessionId === "split-session",
+  );
+});
+
+test("only idle transfer sessions are removed after a successful cleanup", async () => {
+  const h = harness();
+  h.controller.setCapabilities({
+    tmux: { available: true, supported: true, version: "tmux 3.8" },
+  });
+  h.transfers([
+    {
+      backendSessionId: "running",
+      cwd: "/run",
+      command: "codex",
+      activity: "running",
+      attached: false,
+      lastFocusedAt: 300,
+    },
+    {
+      backendSessionId: "idle",
+      cwd: "/idle",
+      command: "zsh",
+      activity: "idle",
+      attached: false,
+      lastFocusedAt: 200,
+    },
+    {
+      backendSessionId: "other-idle",
+      cwd: "/other",
+      command: "zsh",
+      activity: "idle",
+      attached: false,
+      lastFocusedAt: 100,
+    },
+  ]);
+  h.actions.refreshTransferSessions();
+  await settled();
+
+  h.actions.cleanupTransferSessions(["idle"]);
+  await settled();
+  await settled();
+  const cleanup = h.requests.find(
+    (request) => request.kind === "cleanupTransferSessions",
+  );
+  assert.ok(
+    cleanup?.kind === "cleanupTransferSessions" &&
+      cleanup.backendSessionIds.join() === "idle",
+  );
+  assert.deepEqual(
+    h.actions.transferSessions().map((session) => session.backendSessionId),
+    ["running", "other-idle"],
+  );
+});
+
+test("running transfer sessions attach as tabs in one new workspace", async () => {
+  const h = harness();
+  h.controller.setCapabilities({
+    tmux: { available: true, supported: true, version: "tmux 3.8" },
+  });
+  h.transfers([
+    {
+      backendSessionId: "codex-a",
+      cwd: "/a",
+      command: "codex",
+      activity: "running",
+      attached: false,
+      lastFocusedAt: 300,
+    },
+    {
+      backendSessionId: "codex-b",
+      cwd: "/b",
+      command: "codex",
+      activity: "running",
+      attached: false,
+      lastFocusedAt: 200,
+    },
+    {
+      backendSessionId: "shell",
+      cwd: "/shell",
+      command: "zsh",
+      activity: "idle",
+      attached: false,
+      lastFocusedAt: 100,
+    },
+  ]);
+  h.importTransferHandler((request) => ({
+    cwd: request.backendSessionId === "codex-a" ? "/a" : "/b",
+    profile: "/bin/zsh",
+    backend: "tmux",
+    backendSessionId: request.backendSessionId,
+    connectionState: "connected",
+    transport: "control",
+  }));
+  h.actions.refreshTransferSessions();
+  await settled();
+  assert.equal(h.actions.canAttachTransfersToNewWorkspace(2), true);
+  assert.equal(h.actions.canAttachTransfersToNewWorkspace(10), false);
+
+  h.actions.attachTransfersToNewWorkspace(["codex-a", "codex-b"]);
+  await settled();
+  await settled();
+  await settled();
+  assert.equal(h.state().workspaces.length, 3);
+  const workspace = h.state().workspaces[2];
+  assert.equal(h.state().activeWorkspaceId, workspace.id);
+  if (!workspace.root || workspace.root.type !== "pane")
+    throw new Error("missing new workspace pane");
+  assert.deepEqual(
+    workspace.root.tabs.map((tab) => tab.backendSessionId),
+    ["codex-a", "codex-b"],
+  );
+  assert.deepEqual(
+    h.actions.transferSessions().map((session) => session.backendSessionId),
+    ["shell"],
+  );
 });
 
 test("sidebar resize completion restores the current terminal without changing selection or layout", () => {

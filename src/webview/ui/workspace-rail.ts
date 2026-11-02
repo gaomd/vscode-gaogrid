@@ -12,6 +12,7 @@ import {
   readDraggedTab,
   readDraggedWorkspace,
   showInsertionMarker,
+  writeDraggedTransfer,
   WORKSPACE_DRAG_TYPE,
 } from "./tab-drag";
 
@@ -26,6 +27,14 @@ const SETTINGS_LEGEND = [
   ["default", "○", "Default"],
   ["recommended", "★", "Recommended"],
 ] as const;
+const TRANSFER_REFRESH_MS = 2000;
+const formatRelativeTime = (timestampSeconds: number) => {
+  const seconds = Math.max(0, Math.floor(Date.now() / 1000 - timestampSeconds));
+  if (seconds < 60) return "just now";
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  return `${Math.floor(seconds / 86400)}d ago`;
+};
 
 export class WorkspaceRail {
   readonly element = document.createElement("nav");
@@ -35,8 +44,13 @@ export class WorkspaceRail {
   private readonly add: HTMLButtonElement;
   private readonly windowButton: HTMLButtonElement;
   private readonly maximizeButton: HTMLButtonElement;
+  private readonly transferButton: HTMLButtonElement;
+  private readonly transferPanel: HTMLDivElement;
+  private readonly transferList: HTMLDivElement;
   private readonly settingsButton: HTMLButtonElement;
   private readonly settingsPanel: HTMLDivElement;
+  private transferRefreshTimer?: ReturnType<typeof setInterval>;
+  private updateTransferControls = () => {};
   private updateSettingsControls = () => {};
   private settingsTooltip?: HTMLDivElement;
   private settingsTooltipAnchor?: HTMLElement;
@@ -232,6 +246,18 @@ export class WorkspaceRail {
       onClick: () => actions.toggleSidebarSize(),
     });
     this.maximizeButton.hidden = true;
+    this.transferButton = createControl({
+      label: "Transfer tmux Session",
+      icon: "arrow-swap",
+      className: "workspace-rail__transfer",
+      onClick: () => this.toggleTransfer(undefined, true),
+    });
+    this.transferButton.setAttribute("aria-expanded", "false");
+    this.transferButton.setAttribute("aria-controls", "transfer-sessions");
+    this.transferPanel = this.createTransferPanel();
+    this.transferList = this.transferPanel.querySelector(
+      "#transfer-sessions-list",
+    )! as HTMLDivElement;
     this.settingsButton = createControl({
       label: "Terminal Settings",
       icon: "settings",
@@ -244,12 +270,17 @@ export class WorkspaceRail {
     const footer = document.createElement("div");
     footer.className = "workspace-rail__footer";
     footer.append(
+      this.transferPanel,
       this.settingsPanel,
+      this.transferButton,
       this.settingsButton,
       this.windowButton,
       this.maximizeButton,
     );
     this.element.append(scroll, footer);
+    window.addEventListener("resize", () => {
+      if (!this.transferPanel.hidden) this.positionTransferPanel();
+    });
     this.element.addEventListener("dragover", (event) => {
       if (!isTabDrag(event.dataTransfer) || event.target !== this.element)
         return;
@@ -290,7 +321,14 @@ export class WorkspaceRail {
       ? "Maximize / Restore Sidebar · Attach to the sidebar to use this action"
       : "Maximize / Restore Sidebar · ⌘X";
     this.maximizeButton.setAttribute("aria-label", this.maximizeButton.title);
+    this.transferButton.disabled =
+      !this.actions.protectionAvailable() || presentation.transitioning;
+    this.transferButton.title = this.actions.protectionAvailable()
+      ? "Transfer tmux Session"
+      : "Transfer tmux Session · Requires tmux 3.2a or newer";
+    this.transferButton.setAttribute("aria-label", this.transferButton.title);
     this.settingsButton.disabled = false;
+    this.updateTransferControls();
     this.updateSettingsControls();
     if (!this.windowButton.querySelector(`[data-icon="${icon}"]`))
       this.windowButton.replaceChildren(createIcon(icon));
@@ -378,6 +416,7 @@ export class WorkspaceRail {
 
   private toggleSettings(force?: boolean, restoreFocus = false) {
     const visible = force === undefined ? this.settingsPanel.hidden : force;
+    if (visible) this.toggleTransfer(false);
     this.settingsPanel.hidden = !visible;
     this.settingsButton.setAttribute("aria-expanded", String(visible));
     if (visible) {
@@ -419,6 +458,204 @@ export class WorkspaceRail {
     window.addEventListener("resize", () => this.toggleSettings(false), {
       signal: listeners.signal,
     });
+  }
+
+  private createTransferPanel() {
+    const panel = document.createElement("div");
+    panel.className = "transfer-sessions";
+    panel.id = "transfer-sessions";
+    panel.hidden = true;
+    panel.setAttribute("role", "region");
+    panel.setAttribute("aria-label", "Transfer tmux sessions");
+    panel.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      this.toggleTransfer(false, true);
+    });
+
+    const heading = document.createElement("div");
+    heading.className = "transfer-sessions__heading";
+    const title = document.createElement("h2");
+    title.textContent = "Transfer tmux Sessions";
+    const close = createControl({
+      label: "Close transfer sessions",
+      icon: "close",
+      className: "transfer-sessions__close",
+      onClick: () => this.toggleTransfer(false, true),
+    });
+    heading.append(title, close);
+    const note = document.createElement("p");
+    note.className = "transfer-sessions__note";
+    note.textContent =
+      "Drag a session into a pane or tab strip. Attached sessions move their display client here.";
+    const list = document.createElement("div");
+    list.id = "transfer-sessions-list";
+    list.className = "transfer-sessions__list";
+    list.setAttribute("aria-live", "polite");
+    panel.append(heading, note, list);
+    this.updateTransferControls = () => {
+      this.renderTransferSessions();
+      if (!this.transferPanel.hidden) this.positionTransferPanel();
+    };
+    return panel;
+  }
+
+  private toggleTransfer(force?: boolean, restoreFocus = false) {
+    const visible = force === undefined ? this.transferPanel.hidden : force;
+    if (visible) this.toggleSettings(false);
+    this.transferPanel.hidden = !visible;
+    this.transferButton.setAttribute("aria-expanded", String(visible));
+    if (visible) {
+      this.actions.refreshTransferSessions();
+      this.updateTransferControls();
+      this.positionTransferPanel();
+      this.transferRefreshTimer ||= setInterval(
+        () => this.actions.refreshTransferSessions(),
+        TRANSFER_REFRESH_MS,
+      );
+    } else if (this.transferRefreshTimer) {
+      clearInterval(this.transferRefreshTimer);
+      this.transferRefreshTimer = undefined;
+    }
+    if (restoreFocus) this.transferButton.focus();
+  }
+
+  private positionTransferPanel() {
+    const bounds = this.transferButton.getBoundingClientRect();
+    const panelWidth = this.transferPanel.getBoundingClientRect().width;
+    this.transferPanel.style.left = `${Math.round(Math.max(4, Math.min(bounds.right + 4, window.innerWidth - panelWidth - 4)))}px`;
+    this.transferPanel.style.bottom = `${Math.round(window.innerHeight - bounds.bottom)}px`;
+  }
+
+  private renderTransferSessions() {
+    const sessions = this.actions.transferSessions();
+    const signature = JSON.stringify(sessions);
+    if (this.transferList.dataset.signature === signature) return;
+    this.transferList.dataset.signature = signature;
+    if (!sessions.length) {
+      const empty = document.createElement("p");
+      empty.className = "transfer-sessions__empty";
+      empty.textContent = "No tmux sessions are available to transfer.";
+      this.transferList.replaceChildren(empty);
+      return;
+    }
+    const groups = [
+      ["running", "Running"],
+      ["idle", "Idle"],
+      ["unknown", "Unknown"],
+    ] as const;
+    const sections = groups.flatMap(([activity, label]) => {
+      const matches = sessions.filter(
+        (session) => session.activity === activity,
+      );
+      if (!matches.length) return [];
+      const section = document.createElement("section");
+      section.className = "transfer-sessions__section";
+      const heading = document.createElement("div");
+      heading.className = "transfer-sessions__section-heading";
+      const title = document.createElement("h3");
+      title.textContent = label;
+      heading.append(title);
+      if (activity === "idle") {
+        const cleanAll = createControl({
+          label: `Clean up all ${matches.length} idle tmux sessions`,
+          icon: "trash",
+          text: "Clean Up",
+          className: "transfer-sessions__clean-all",
+          onClick: () =>
+            this.actions.cleanupTransferSessions(
+              matches.map((session) => session.backendSessionId),
+            ),
+        });
+        heading.append(cleanAll);
+      } else if (activity === "running") {
+        const canAttach = this.actions.canAttachTransfersToNewWorkspace(
+          matches.length,
+        );
+        const attachAll = createControl({
+          label: canAttach
+            ? `Attach all ${matches.length} running tmux sessions to a new workspace`
+            : "Cannot create another workspace or attach more than nine sessions",
+          icon: "attach",
+          text: "Attach All",
+          className: "transfer-sessions__attach-all",
+          onClick: () =>
+            this.actions.attachTransfersToNewWorkspace(
+              matches.map((session) => session.backendSessionId),
+            ),
+        });
+        attachAll.disabled = !canAttach;
+        heading.append(attachAll);
+      }
+      const items = document.createElement("div");
+      items.className = "transfer-sessions__items";
+      items.append(
+        ...matches.map((session) => {
+          const shortId = session.backendSessionId
+            .replace(/^gaogrid-/, "")
+            .slice(0, 8);
+          const nameText = `${session.command || "tmux session"} · ${shortId}`;
+          const item = document.createElement("button");
+          item.type = "button";
+          item.className = "transfer-session";
+          item.draggable = true;
+          item.dataset.activity = session.activity;
+          item.title = `${nameText}\n${session.cwd}\nDrag to a pane or tab strip`;
+          item.setAttribute(
+            "aria-label",
+            `${nameText}, ${session.activity}, ${session.cwd}`,
+          );
+          const status = document.createElement("span");
+          status.className = "transfer-session__status";
+          status.setAttribute("aria-hidden", "true");
+          const content = document.createElement("span");
+          content.className = "transfer-session__content";
+          const name = document.createElement("span");
+          name.className = "transfer-session__name";
+          name.textContent = nameText;
+          const details = document.createElement("span");
+          details.className = "transfer-session__meta";
+          const age =
+            session.lastFocusedAt > 0
+              ? formatRelativeTime(session.lastFocusedAt)
+              : "unknown";
+          details.textContent = `${session.cwd || "unknown cwd"} · ${age}${session.attached ? " · attached elsewhere" : ""}`;
+          content.append(name, details);
+          item.append(status, content);
+          item.addEventListener("click", () =>
+            this.actions.importTransferSessionToFocusedPane(
+              session.backendSessionId,
+            ),
+          );
+          item.addEventListener("dragstart", (event) => {
+            clearAllDragIndicators();
+            writeDraggedTransfer(event.dataTransfer, session.backendSessionId);
+            if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+          });
+          item.addEventListener("dragend", () => clearAllDragIndicators());
+          const row = document.createElement("div");
+          row.className = "transfer-session-row";
+          row.append(item);
+          if (session.activity === "idle") {
+            const clean = createControl({
+              label: `Clean up ${nameText}`,
+              icon: "trash",
+              className: "transfer-session__clean",
+              onClick: () =>
+                this.actions.cleanupTransferSessions([
+                  session.backendSessionId,
+                ]),
+            });
+            row.append(clean);
+          }
+          return row;
+        }),
+      );
+      section.append(heading, items);
+      return [section];
+    });
+    this.transferList.replaceChildren(...sections);
   }
 
   private createSettingsPanel() {

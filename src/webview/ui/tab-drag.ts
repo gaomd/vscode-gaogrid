@@ -1,8 +1,10 @@
 import type { DropSide } from "./types";
 
 export const TAB_DRAG_TYPE = "application/x-gaogrid-tab";
+export const TRANSFER_DRAG_TYPE = "application/x-gaogrid-transfer";
 export const WORKSPACE_DRAG_TYPE = "application/x-gaogrid-workspace";
 let draggedTabId: string | undefined;
+let draggedTransferId: string | undefined;
 
 export function writeDraggedTab(
   dataTransfer: DataTransfer | null,
@@ -24,6 +26,28 @@ export function readDraggedTab(dataTransfer: DataTransfer | null) {
   // Browsers hide the payload during dragover. Keep this webview's source ID
   // available so previews can validate a move before allowing the drop.
   return dataTransfer!.getData(TAB_DRAG_TYPE) || draggedTabId;
+}
+
+export function writeDraggedTransfer(
+  dataTransfer: DataTransfer | null,
+  backendSessionId: string,
+) {
+  if (!dataTransfer) return;
+  draggedTransferId = backendSessionId;
+  dataTransfer.setData(TRANSFER_DRAG_TYPE, backendSessionId);
+}
+
+export function isTransferDrag(dataTransfer: DataTransfer | null) {
+  return !!dataTransfer && [...dataTransfer.types].includes(TRANSFER_DRAG_TYPE);
+}
+
+export function readDraggedTransfer(dataTransfer: DataTransfer | null) {
+  if (!isTransferDrag(dataTransfer)) return undefined;
+  return dataTransfer!.getData(TRANSFER_DRAG_TYPE) || draggedTransferId;
+}
+
+export function isTerminalDrag(dataTransfer: DataTransfer | null) {
+  return isTabDrag(dataTransfer) || isTransferDrag(dataTransfer);
 }
 
 export function isWorkspaceDrag(dataTransfer: DataTransfer | null) {
@@ -109,6 +133,7 @@ export function clearAllInsertionMarkers() {
 
 export function clearAllDragIndicators() {
   draggedTabId = undefined;
+  draggedTransferId = undefined;
   clearAllInsertionMarkers();
   document
     .querySelectorAll<HTMLElement>(

@@ -26,6 +26,7 @@ import type {
   TerminalMetadata,
   TerminalTransport,
   BackendOptions,
+  TransferSession,
 } from "./terminal-protocol";
 import {
   OUTPUT_CHECKPOINT_INTERVAL_MS,
@@ -41,6 +42,24 @@ type TerminalProcess = Pick<
   readonly ready?: Promise<void>;
   setDefaultColors?(colors: TerminalDefaultColors): void;
 };
+
+const SHELL_COMMANDS = new Set([
+  "bash",
+  "csh",
+  "dash",
+  "fish",
+  "ksh",
+  "sh",
+  "tcsh",
+  "zsh",
+]);
+
+const commandName = (value: string) =>
+  path
+    .basename(value)
+    .replace(/^-/, "")
+    .replace(/\.exe$/i, "")
+    .toLowerCase();
 
 type Session = {
   process: TerminalProcess;
@@ -818,6 +837,70 @@ export class PtyManager {
       metadata.updatedAt = Date.now();
     }
     return { ...metadata };
+  }
+  markFocused(sessionId: string) {
+    const metadata = this.backends.get(sessionId);
+    if (metadata?.backend !== "tmux" || !metadata.backendSessionId) return;
+    void this.tmux
+      .markFocused(metadata.backendSessionId)
+      .catch((error) =>
+        this.options.log?.(`Could not record tmux focus: ${String(error)}`),
+      );
+  }
+  async transferSessions(known: Set<string>): Promise<TransferSession[]> {
+    const [sessions, processes] = await Promise.all([
+      this.tmux.listOwnedSessions(),
+      inspectProcesses(),
+    ]);
+    return sessions
+      .filter((session) => !known.has(session.backendSessionId))
+      .map((session): TransferSession => {
+        let activity: TransferSession["activity"];
+        const root = processes?.find((entry) => entry.pid === session.pid);
+        if (!processes || !root) activity = "unknown";
+        else if (!SHELL_COMMANDS.has(commandName(session.command)))
+          activity = "running";
+        else
+          activity = hasActiveTask(processes, session.pid, root.command)
+            ? "running"
+            : "idle";
+        return {
+          backendSessionId: session.backendSessionId,
+          cwd: session.cwd,
+          command: session.command,
+          attached: session.attached,
+          lastFocusedAt: session.lastFocusedAt,
+          activity,
+        };
+      })
+      .sort(
+        (left, right) =>
+          ({ running: 0, idle: 1, unknown: 2 })[left.activity] -
+            { running: 0, idle: 1, unknown: 2 }[right.activity] ||
+          right.lastFocusedAt - left.lastFocusedAt,
+      );
+  }
+  async importTransferSession(
+    sessionId: string,
+    backendSessionId: string,
+    transport: TerminalTransport,
+  ): Promise<TerminalMetadata | undefined> {
+    const session = (await this.tmux.listOwnedSessions()).find(
+      (item) => item.backendSessionId === backendSessionId,
+    );
+    if (!session || !(await this.tmux.inspect(backendSessionId)))
+      throw new Error("Transferred tmux session is no longer available.");
+    await this.start(sessionId, session.cwd, undefined, false, {
+      backend: "tmux",
+      backendSessionId,
+      transport,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    await this.tmux.markFocused(backendSessionId).catch((error) => {
+      this.options.log?.(`Could not record tmux focus: ${String(error)}`);
+    });
+    return this.metadata(sessionId);
   }
   private emitMetadata(sessionId: string) {
     const metadata = this.metadata(sessionId);
