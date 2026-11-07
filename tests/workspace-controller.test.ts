@@ -559,6 +559,57 @@ test("add-button tabs append while nested splits retain other selections", async
   assert.equal(all[0].activeTabId, "a-1");
 });
 
+test("a tab dropped after the last tab is moved to the end", async () => {
+  const h = harness();
+
+  h.actions.moveTabToPane("a-1", "a", 2);
+  await settled();
+
+  const pane = getPanes(h.state().workspaces[0].root)[0];
+  assert.deepEqual(
+    pane.tabs.map((tab) => tab.id),
+    ["a-2", "a-1"],
+  );
+});
+
+test("a tab dropped after another pane's last tab is appended there", async () => {
+  const h = harness();
+
+  h.actions.moveTabToPane("a-1", "b", 2);
+  await settled();
+
+  const panes = getPanes(h.state().workspaces[0].root);
+  assert.deepEqual(
+    panes[0].tabs.map((tab) => tab.id),
+    ["a-2"],
+  );
+  assert.deepEqual(
+    panes[1].tabs.map((tab) => tab.id),
+    ["b-1", "b-2", "a-1"],
+  );
+  assert.equal(panes[1].activeTabId, "a-1");
+});
+
+test("workspace tabs reorder to the end and no-op in their current slot", async () => {
+  const h = harness();
+
+  h.actions.reorderWorkspace("one", 2);
+  await settled();
+  assert.deepEqual(
+    h.state().workspaces.map((workspace) => workspace.id),
+    ["two", "one"],
+  );
+  assert.deepEqual(
+    h.state().workspaces.map((workspace) => workspace.name),
+    ["^1", "^2"],
+  );
+
+  const unchanged = structuredClone(h.state());
+  h.actions.reorderWorkspace("two", 1);
+  await settled();
+  assert.deepEqual(h.state(), unchanged);
+});
+
 test("new-tab shortcut opens immediately after the active tab", async () => {
   const h = harness();
 

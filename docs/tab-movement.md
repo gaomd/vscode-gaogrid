@@ -16,6 +16,18 @@ Dragging keeps the source tab in place until drop. A marker shows the target
 position. Moving the last tab out of a workspace's only pane removes that
 workspace. When splitting a pane's only tab into that same pane, GaoGrid opens a
 fresh terminal in the original pane and moves the dragged tab into the new pane.
+Internal moves use one drag-session and insertion-target implementation for
+terminal tabs, workspaces, and tmux transfers. The tab strip and its add button
+share one target; dropping in the trailing blank area appends the tab.
+
+- The whole tab strip and its **+** button accept drops; the marker stays in the
+  nearest insertion gutter, including the edge before the first tab.
+- Tabs never move or sort while hovering. Same-pane moves use the adjusted
+  post-removal index, and dropping in the current slot is a no-op.
+- The trailing blank area and **+** button append the tab and show the marker
+  between the last tab and **+**.
+- Cancelling a drag leaves tabs and workspaces unchanged and clears every
+  marker and preview.
 
 ## Insert File And Folder Paths
 

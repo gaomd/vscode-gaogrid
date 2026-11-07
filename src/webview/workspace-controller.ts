@@ -78,6 +78,23 @@ const insertionIndexAfter = (
 const insertTabAfterActive = (pane: PaneNode, tab: TerminalTab) => {
   pane.tabs.splice(insertionIndexAfter(pane.tabs, pane.activeTabId), 0, tab);
 };
+const clampInsertionIndex = (index: number, length: number) =>
+  Math.max(0, Math.min(index, length));
+const moveItemToIndex = <T>(
+  items: T[],
+  sourceIndex: number,
+  targetIndex: number,
+) => {
+  if (sourceIndex < 0 || sourceIndex >= items.length) return false;
+  const nextIndex = clampInsertionIndex(
+    sourceIndex < targetIndex ? targetIndex - 1 : targetIndex,
+    items.length - 1,
+  );
+  if (nextIndex === sourceIndex) return false;
+  const [item] = items.splice(sourceIndex, 1);
+  items.splice(nextIndex, 0, item);
+  return true;
+};
 const isTerminalMetadata = (
   value: LifecycleResult,
 ): value is TerminalMetadata =>
@@ -944,12 +961,9 @@ export class WorkspaceController {
 
       this.removeMovedTab(source);
       targetPane.tabs.splice(
-        Math.max(
-          0,
-          Math.min(
-            targetIndex ?? targetPane.tabs.length,
-            targetPane.tabs.length,
-          ),
+        clampInsertionIndex(
+          targetIndex ?? targetPane.tabs.length,
+          targetPane.tabs.length,
         ),
         0,
         source.tab,
@@ -972,16 +986,7 @@ export class WorkspaceController {
     const pane = findPane(workspace?.root || null, paneId);
     if (!pane) return;
     const sourceIndex = pane.tabs.findIndex((tab) => tab.id === tabId);
-    if (sourceIndex < 0) return;
-    const [tab] = pane.tabs.splice(sourceIndex, 1);
-    const adjustedIndex =
-      sourceIndex < targetIndex ? targetIndex - 1 : targetIndex;
-    pane.tabs.splice(
-      Math.max(0, Math.min(adjustedIndex, pane.tabs.length)),
-      0,
-      tab,
-    );
-    if (pane.tabs[sourceIndex]?.id === tabId) return;
+    if (!moveItemToIndex(pane.tabs, sourceIndex, targetIndex)) return;
     this.commit();
   }
 
@@ -989,16 +994,8 @@ export class WorkspaceController {
     const sourceIndex = this.state.workspaces.findIndex(
       (workspace) => workspace.id === workspaceId,
     );
-    if (sourceIndex < 0) return;
-    const [workspace] = this.state.workspaces.splice(sourceIndex, 1);
-    const adjustedIndex =
-      sourceIndex < targetIndex ? targetIndex - 1 : targetIndex;
-    this.state.workspaces.splice(
-      Math.max(0, Math.min(adjustedIndex, this.state.workspaces.length)),
-      0,
-      workspace,
-    );
-    if (this.state.workspaces[sourceIndex]?.id === workspaceId) return;
+    if (!moveItemToIndex(this.state.workspaces, sourceIndex, targetIndex))
+      return;
     this.renumberWorkspaces();
     this.commit(false);
   }
@@ -1168,9 +1165,9 @@ export class WorkspaceController {
       let insertionIndex = targetIndex ?? this.state.workspaces.length;
       if (removesSourceWorkspace && sourceWorkspaceIndex < insertionIndex)
         insertionIndex--;
-      insertionIndex = Math.max(
-        0,
-        Math.min(insertionIndex, this.state.workspaces.length),
+      insertionIndex = clampInsertionIndex(
+        insertionIndex,
+        this.state.workspaces.length,
       );
       this.state.workspaces.splice(insertionIndex, 0, workspace);
       this.state.activeWorkspaceId = workspace.id;

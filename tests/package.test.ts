@@ -29,6 +29,20 @@ test("production webview CSS includes terminal layout and input styles", async (
     css,
     /\.terminal-mount\[data-file-drag-preview=true\]::after\s*\{[^}]*content:\s*"Drop to insert paths"/,
   );
+  assert.match(css, /\.terminal-tabs::after\s*\{[^}]*content:\s*""/);
+  assert.match(css, /\.workspace-rail__list::after\s*\{[^}]*content:\s*""/);
+  assert.match(
+    css,
+    /\.drag-insertion-marker\[data-axis=horizontal\]\[data-edge=start\]\s*\{[^}]*transform:\s*translate\(0,\s*-50%\)/,
+  );
+  assert.match(
+    css,
+    /\.workspace-label\[data-drop-target=true\]\s*\{[^}]*box-shadow:\s*inset 0 0 0 2px/,
+  );
+  assert.match(
+    css,
+    /\.workspace-label,\s*\.workspace-rail__add,\s*\.workspace-rail__window,\s*\.workspace-rail__maximize,\s*\.workspace-rail__transfer,\s*\.workspace-rail__settings\s*\{[^}]*width:\s*100%[^}]*height:\s*auto[^}]*aspect-ratio:\s*1/,
+  );
   for (const side of ["left", "right", "top", "bottom"])
     assert.match(
       css,

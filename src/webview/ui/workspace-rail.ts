@@ -4,17 +4,10 @@ import { createControl, reconcileChildren } from "./controls";
 import { createIcon } from "./icons";
 import type { WorkspaceActions } from "./types";
 import {
-  clearAllDragIndicators,
-  clearAllInsertionMarkers,
-  clearInsertionMarker,
-  isTabDrag,
-  isWorkspaceDrag,
-  readDraggedTab,
-  readDraggedWorkspace,
-  showInsertionMarker,
-  writeDraggedTransfer,
-  WORKSPACE_DRAG_TYPE,
-} from "./tab-drag";
+  installDropTarget,
+  installInsertionTarget,
+  startInternalDrag,
+} from "./drag-target";
 
 type SettingsOption<T> = readonly [
   label: string,
@@ -73,162 +66,6 @@ export class WorkspaceRail {
       className: "workspace-rail__add",
       onClick: () => actions.createWorkspace(),
     });
-    this.add.addEventListener("dragover", (event) => {
-      if (isWorkspaceDrag(event.dataTransfer)) {
-        event.preventDefault();
-        event.stopPropagation();
-        const workspaces = [
-          ...this.list.querySelectorAll<HTMLElement>(".workspace-label"),
-        ];
-        showInsertionMarker(
-          this.list,
-          this.workspaceInsertionMarker,
-          workspaces,
-          "vertical",
-          event.clientX,
-          event.clientY,
-        );
-        this.list.dataset.insertionIndex = String(this.buttons.size);
-        const bounds = this.list.getBoundingClientRect();
-        this.workspaceInsertionMarker.style.top = workspaces.length
-          ? `${workspaces.at(-1)!.getBoundingClientRect().bottom - bounds.top + this.list.scrollTop}px`
-          : "0px";
-        event.dataTransfer!.dropEffect = "move";
-        return;
-      }
-      if (!isTabDrag(event.dataTransfer) || this.add.disabled) return;
-      event.preventDefault();
-      event.stopPropagation();
-      this.add.dataset.dropNew = "true";
-      event.dataTransfer!.dropEffect = "move";
-    });
-    this.add.addEventListener("dragleave", (event) => {
-      if (isWorkspaceDrag(event.dataTransfer)) {
-        clearInsertionMarker(this.list, this.workspaceInsertionMarker);
-        return;
-      }
-      if (
-        event.relatedTarget instanceof Node &&
-        this.add.contains(event.relatedTarget)
-      )
-        return;
-      delete this.add.dataset.dropNew;
-    });
-    this.add.addEventListener("drop", (event) => {
-      const workspaceId = readDraggedWorkspace(event.dataTransfer);
-      if (workspaceId) {
-        event.preventDefault();
-        event.stopPropagation();
-        clearInsertionMarker(this.list, this.workspaceInsertionMarker);
-        clearAllInsertionMarkers();
-        this.actions.reorderWorkspace(workspaceId, this.buttons.size);
-        return;
-      }
-      const tabId = readDraggedTab(event.dataTransfer);
-      if (!tabId || this.add.disabled) return;
-      event.preventDefault();
-      event.stopPropagation();
-      delete this.add.dataset.dropNew;
-      actions.moveTabToNewWorkspace(tabId);
-    });
-    this.list.addEventListener("dragover", (event) => {
-      if (!isTabDrag(event.dataTransfer)) return;
-      if (
-        event.target instanceof Element &&
-        event.target.closest(".workspace-label")
-      ) {
-        delete this.list.dataset.dropNew;
-        return;
-      }
-      event.preventDefault();
-      event.stopPropagation();
-      this.list.dataset.dropNew = "true";
-      event.dataTransfer!.dropEffect = "move";
-    });
-    this.list.addEventListener(
-      "dragover",
-      (event) => {
-        if (
-          !isWorkspaceDrag(event.dataTransfer) &&
-          !isTabDrag(event.dataTransfer)
-        )
-          return;
-        event.preventDefault();
-        if (isWorkspaceDrag(event.dataTransfer)) event.stopPropagation();
-        showInsertionMarker(
-          this.list,
-          this.workspaceInsertionMarker,
-          [...this.list.querySelectorAll<HTMLElement>(".workspace-label")],
-          "vertical",
-          event.clientX,
-          event.clientY,
-        );
-        event.dataTransfer!.dropEffect = "move";
-      },
-      true,
-    );
-    this.list.addEventListener(
-      "dragleave",
-      (event) => {
-        if (
-          !isWorkspaceDrag(event.dataTransfer) &&
-          !isTabDrag(event.dataTransfer)
-        )
-          return;
-        if (
-          event.relatedTarget instanceof Node &&
-          this.list.contains(event.relatedTarget)
-        )
-          return;
-        clearInsertionMarker(this.list, this.workspaceInsertionMarker);
-      },
-      true,
-    );
-    this.list.addEventListener(
-      "drop",
-      (event) => {
-        const workspaceId = readDraggedWorkspace(event.dataTransfer);
-        if (!workspaceId) return;
-        event.preventDefault();
-        event.stopPropagation();
-        const targetIndex = Number(this.list.dataset.insertionIndex || 0);
-        clearInsertionMarker(this.list, this.workspaceInsertionMarker);
-        clearAllInsertionMarkers();
-        this.actions.reorderWorkspace(workspaceId, targetIndex);
-      },
-      true,
-    );
-    this.list.addEventListener("dragleave", (event) => {
-      if (
-        event.relatedTarget instanceof Node &&
-        this.list.contains(event.relatedTarget)
-      )
-        return;
-      delete this.list.dataset.dropNew;
-    });
-    this.list.addEventListener("drop", (event) => {
-      const tabId = readDraggedTab(event.dataTransfer);
-      if (
-        !tabId ||
-        (event.target instanceof Element &&
-          event.target.closest(".workspace-label"))
-      )
-        return;
-      event.preventDefault();
-      event.stopPropagation();
-      delete this.list.dataset.dropNew;
-      showInsertionMarker(
-        this.list,
-        this.workspaceInsertionMarker,
-        [...this.list.querySelectorAll<HTMLElement>(".workspace-label")],
-        "vertical",
-        event.clientX,
-        event.clientY,
-      );
-      const targetIndex = Number(this.list.dataset.insertionIndex || 0);
-      clearInsertionMarker(this.list, this.workspaceInsertionMarker);
-      actions.moveTabToNewWorkspace(tabId, targetIndex);
-    });
     const scroll = document.createElement("div");
     scroll.className = "workspace-rail__scroll";
     scroll.append(this.list, this.add);
@@ -281,28 +118,26 @@ export class WorkspaceRail {
     window.addEventListener("resize", () => {
       if (!this.transferPanel.hidden) this.positionTransferPanel();
     });
-    this.element.addEventListener("dragover", (event) => {
-      if (!isTabDrag(event.dataTransfer) || event.target !== this.element)
-        return;
-      if (this.add.disabled) return;
-      event.preventDefault();
-      this.element.dataset.dropNew = "true";
-      event.dataTransfer!.dropEffect = "move";
-    });
-    this.element.addEventListener("dragleave", (event) => {
-      if (
-        event.relatedTarget instanceof Node &&
-        this.element.contains(event.relatedTarget)
-      )
-        return;
-      delete this.element.dataset.dropNew;
-    });
-    this.element.addEventListener("drop", (event) => {
-      const tabId = readDraggedTab(event.dataTransfer);
-      if (!tabId || event.target !== this.element || this.add.disabled) return;
-      event.preventDefault();
-      delete this.element.dataset.dropNew;
-      actions.moveTabToNewWorkspace(tabId);
+    installInsertionTarget({
+      owner: this.element,
+      container: this.list,
+      marker: this.workspaceInsertionMarker,
+      items: () => [
+        ...this.list.querySelectorAll<HTMLElement>(".workspace-label"),
+      ],
+      axis: "vertical",
+      accepts: (drag) => drag.kind === "workspace" || drag.kind === "tab",
+      ignore: (event, drag) => {
+        const target = event.target instanceof Element ? event.target : null;
+        if (target?.closest(".workspace-rail__footer")) return true;
+        return drag.kind === "tab" && !!target?.closest(".workspace-label");
+      },
+      canDrop: (drag) => drag.kind === "workspace" || !this.add.disabled,
+      onDrop: (drag, targetIndex) => {
+        if (drag.kind === "workspace")
+          this.actions.reorderWorkspace(drag.id, targetIndex);
+        else this.actions.moveTabToNewWorkspace(drag.id, targetIndex);
+      },
     });
   }
 
@@ -354,37 +189,17 @@ export class WorkspaceRail {
         );
         button.draggable = true;
         button.addEventListener("dragstart", (event) => {
-          event.dataTransfer?.setData(WORKSPACE_DRAG_TYPE, workspace.id);
-          if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
-          clearAllDragIndicators();
+          startInternalDrag(event.dataTransfer, {
+            kind: "workspace",
+            id: workspace.id,
+          });
         });
-        button.addEventListener("dragend", () => {
-          clearAllDragIndicators();
-        });
-        button.addEventListener("dragover", (event) => {
-          if (!isTabDrag(event.dataTransfer)) return;
-          event.preventDefault();
-          event.stopPropagation();
-          button!.dataset.dropTarget = "true";
-          event.dataTransfer!.dropEffect = "move";
-        });
-        button.addEventListener("dragleave", (event) => {
-          if (
-            event.relatedTarget instanceof Node &&
-            button!.contains(event.relatedTarget)
-          )
-            return;
-          delete button!.dataset.dropTarget;
-        });
-        button.addEventListener("drop", (event) => {
-          const tabId = readDraggedTab(event.dataTransfer);
-          if (!tabId) return;
-          event.preventDefault();
-          event.stopPropagation();
-          delete button!.dataset.dropTarget;
-          delete this.list.dataset.dropNew;
-          clearInsertionMarker(this.list, this.workspaceInsertionMarker);
-          this.actions.moveTabToWorkspace(tabId, workspace.id);
+        installDropTarget({
+          owner: button,
+          accepts: (drag) => drag.kind === "tab",
+          onDrop: (drag) => {
+            this.actions.moveTabToWorkspace(drag.id, workspace.id);
+          },
         });
         this.buttons.set(workspace.id, button);
       }
@@ -629,11 +444,11 @@ export class WorkspaceRail {
             ),
           );
           item.addEventListener("dragstart", (event) => {
-            clearAllDragIndicators();
-            writeDraggedTransfer(event.dataTransfer, session.backendSessionId);
-            if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+            startInternalDrag(event.dataTransfer, {
+              kind: "transfer",
+              id: session.backendSessionId,
+            });
           });
-          item.addEventListener("dragend", () => clearAllDragIndicators());
           const row = document.createElement("div");
           row.className = "transfer-session-row";
           row.append(item);

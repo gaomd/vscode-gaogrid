@@ -174,12 +174,12 @@ button {
   min-height: 0;
   width: 100%;
   flex-direction: column;
-  gap: var(--gg-space);
   overflow: auto;
   scrollbar-width: none;
 }
 
 .workspace-rail__footer {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -189,6 +189,8 @@ button {
   margin-block-start: auto;
 }
 
+.workspace-label,
+.workspace-rail__add,
 .workspace-rail__window,
 .workspace-rail__maximize,
 .workspace-rail__transfer,
@@ -197,14 +199,6 @@ button {
   height: auto;
   min-height: var(--gg-control-size);
   aspect-ratio: 1;
-}
-
-.workspace-rail__transfer,
-.workspace-rail__settings {
-  width: 24px;
-  height: 24px;
-  min-height: 24px;
-  border-radius: 5px;
 }
 
 .workspace-rail__transfer .control__icon,
@@ -217,15 +211,6 @@ button {
 .workspace-rail__settings[aria-expanded="true"] {
   color: var(--vscode-toolbar-activeForeground, var(--gg-text));
   background: var(--vscode-toolbar-activeBackground, var(--gg-active-surface));
-}
-
-.workspace-rail__window[hidden],
-.workspace-rail__maximize[hidden] {
-  display: none;
-}
-
-.workspace-rail__footer {
-  position: relative;
 }
 
 .transfer-sessions {
@@ -644,26 +629,18 @@ button {
   gap: var(--gg-space);
 }
 
-.workspace-label,
-.workspace-rail__add {
-  width: 100%;
+/* Keep the final insertion gutter inside the scrollable list. */
+.workspace-rail__list::after {
+  flex: 0 0 0;
+  content: "";
 }
 
-.workspace-label[data-drop-target="true"],
-.workspace-rail__add[data-drop-new="true"] {
-  outline: 1px solid var(--vscode-focusBorder);
+.workspace-label[data-drop-target="true"] {
   background: var(
     --vscode-list-dropBackground,
     var(--vscode-list-hoverBackground)
   );
-}
-
-.workspace-rail__list[data-drop-new="true"],
-.workspace-rail[data-drop-new="true"] {
-  background: var(
-    --vscode-list-dropBackground,
-    var(--vscode-list-hoverBackground)
-  );
+  box-shadow: inset 0 0 0 2px var(--gg-focus-border);
 }
 
 .workspace-label,
@@ -706,7 +683,6 @@ button {
   display: flex;
   flex: 1 1 auto;
   align-items: center;
-  gap: var(--gg-space);
   min-width: 0;
 }
 
@@ -720,6 +696,12 @@ button {
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
+}
+
+/* Keep the final insertion gutter inside the scroller without shifting the first tab. */
+.terminal-tabs::after {
+  flex: 0 0 0;
+  content: "";
 }
 
 .terminal-tabs::-webkit-scrollbar,
@@ -769,6 +751,14 @@ button {
   width: min(100%, 48px);
   height: 2px;
   transform: translate(-50%, -50%);
+}
+
+.drag-insertion-marker[data-axis="horizontal"][data-edge="start"] {
+  transform: translate(0, -50%);
+}
+
+.drag-insertion-marker[data-axis="vertical"][data-edge="start"] {
+  transform: translate(-50%, 0);
 }
 
 .pane-header__actions {
