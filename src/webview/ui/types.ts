@@ -51,6 +51,7 @@ export interface WorkspaceActions {
   splitPane(paneId: string, side: DropSide): void;
   resizeSplit(splitId: string, ratio: number, complete: boolean): void;
   copyDirectory(paneId: string): void;
+  insertPaths(paneId: string): void;
 }
 
 export type DropSide = "left" | "right" | "top" | "bottom";

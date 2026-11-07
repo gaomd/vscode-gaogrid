@@ -492,6 +492,11 @@ export class PaneView {
       separatorBefore: true,
       run: () => this.actions.copyDirectory(id),
     });
+    items.push({
+      label: "Insert Paths…",
+      icon: "file",
+      run: () => this.actions.insertPaths(id),
+    });
     return items;
   }
 }

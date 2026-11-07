@@ -591,6 +591,18 @@ test("context-menu new tab opens immediately after the active tab", async () => 
   assert.equal(tabs[2].id, "b-2");
 });
 
+test("Insert Paths targets the active terminal in the requested pane", () => {
+  const h = harness();
+  h.actions.activateTab("a", "a-2");
+
+  h.actions.insertPaths("a");
+
+  assert.deepEqual(h.sent.at(-1), {
+    type: "insertPaths",
+    sessionId: "a-s2",
+  });
+});
+
 test("new workspaces open immediately after the active workspace", async () => {
   const initial = fixture();
   initial.workspaces.push({

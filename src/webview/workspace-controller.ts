@@ -200,6 +200,11 @@ export class WorkspaceController {
         if (tab)
           this.bridge.send({ type: "copyCwd", sessionId: tab.sessionId });
       },
+      insertPaths: (paneId) => {
+        const tab = this.activeTab(paneId);
+        if (tab)
+          this.bridge.send({ type: "insertPaths", sessionId: tab.sessionId });
+      },
     };
     this.view = createView(root, actions, terminals);
   }

@@ -62,6 +62,7 @@ export function activate(context: vscode.ExtensionContext) {
   let viewReady = false;
   let viewGeneration = 0;
   let activeSessionId: string | undefined;
+  const lastInsertPathDirectories = new Map<string, string>();
   const endedSessions = new Set<string>();
   let state = restoreState(
     context.workspaceState.get(STATE_KEY) ??
@@ -94,6 +95,7 @@ export function activate(context: vscode.ExtensionContext) {
       }
       if (event.type === "sessionEnded") {
         if (event.sessionId === activeSessionId) activeSessionId = undefined;
+        lastInsertPathDirectories.delete(event.sessionId);
         outputStreams.unsubscribe(event.sessionId);
         endedSessions.add(event.sessionId);
         if (removeTabFromState(state, event.sessionId)) void persist();
@@ -876,6 +878,10 @@ export function activate(context: vscode.ExtensionContext) {
           if (cwd) void vscode.env.clipboard.writeText(cwd);
           break;
         }
+        case "insertPaths":
+          if (typeof message.sessionId === "string")
+            await insertPaths(undefined, undefined, message.sessionId);
+          break;
       }
     });
   }
@@ -1038,6 +1044,7 @@ export function activate(context: vscode.ExtensionContext) {
   async function insertPaths(
     resource?: unknown,
     selectedResources?: readonly unknown[],
+    requestedSessionId?: string,
   ) {
     const selected = selectedResources?.length
       ? selectedResources
@@ -1048,15 +1055,19 @@ export function activate(context: vscode.ExtensionContext) {
       .map(droppedPath)
       .filter((value): value is string => !!value);
     if (!view || !viewReady) await revealSidebar();
-    if (!activeSessionId) {
+    const sessionId = requestedSessionId || activeSessionId;
+    if (!sessionId) {
       void vscode.window.showWarningMessage(
         "Focus a GaoGrid terminal before inserting paths.",
       );
       return;
     }
     if (!paths.length) {
-      const cwd = await manager.cwd(activeSessionId);
-      const defaultDirectory = cwd ? await validDirectory(cwd) : undefined;
+      const cwd = await manager.cwd(sessionId);
+      const remembered = lastInsertPathDirectories.get(sessionId);
+      const defaultDirectory =
+        (remembered ? await validDirectory(remembered) : undefined) ||
+        (cwd ? await validDirectory(cwd) : undefined);
       const uris = await vscode.window.showOpenDialog({
         title: "Select files or folders to insert into the GaoGrid terminal",
         openLabel: "Insert Paths",
@@ -1068,18 +1079,23 @@ export function activate(context: vscode.ExtensionContext) {
         canSelectMany: true,
       });
       if (!uris) return;
-      paths.push(
-        ...uris.filter((uri) => uri.scheme === "file").map((uri) => uri.fsPath),
-      );
+      const selectedPaths = uris
+        .filter((uri) => uri.scheme === "file")
+        .map((uri) => uri.fsPath);
+      paths.push(...selectedPaths);
+      const containing = selectedPaths[0]
+        ? await validDirectory(path.dirname(selectedPaths[0]))
+        : undefined;
+      if (containing) lastInsertPathDirectories.set(sessionId, containing);
     }
-    const text = manager.quotePaths(activeSessionId, [...new Set(paths)]);
+    const text = manager.quotePaths(sessionId, [...new Set(paths)]);
     if (!text) {
       void vscode.window.showWarningMessage(
         "The focused GaoGrid terminal is not ready.",
       );
       return;
     }
-    post({ type: "paste", sessionId: activeSessionId, text });
+    post({ type: "paste", sessionId, text });
   }
 }
 export async function deactivate() {

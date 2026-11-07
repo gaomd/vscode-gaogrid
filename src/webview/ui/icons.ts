@@ -13,6 +13,7 @@ import refresh from "@vscode/codicons/src/icons/refresh.svg";
 import info from "@vscode/codicons/src/icons/info.svg";
 import arrowSwap from "@vscode/codicons/src/icons/arrow-swap.svg";
 import trash from "@vscode/codicons/src/icons/trash.svg";
+import file from "@vscode/codicons/src/icons/file.svg";
 
 const sources = {
   shield,
@@ -30,6 +31,7 @@ const sources = {
   info,
   "arrow-swap": arrowSwap,
   trash,
+  file,
 };
 
 export type IconName = keyof typeof sources;
