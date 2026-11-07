@@ -66,6 +66,18 @@ const makePane = (cwd: string): PaneNode => {
     lastKnownCwd: cwd,
   };
 };
+const insertionIndexAfter = (
+  items: readonly { id: string }[],
+  activeId: string | null | undefined,
+) => {
+  const activeIndex = activeId
+    ? items.findIndex((item) => item.id === activeId)
+    : -1;
+  return activeIndex < 0 ? items.length : activeIndex + 1;
+};
+const insertTabAfterActive = (pane: PaneNode, tab: TerminalTab) => {
+  pane.tabs.splice(insertionIndexAfter(pane.tabs, pane.activeTabId), 0, tab);
+};
 const isTerminalMetadata = (
   value: LifecycleResult,
 ): value is TerminalMetadata =>
@@ -364,8 +376,8 @@ export class WorkspaceController {
               ? "left"
               : "right";
       if (pane) this.splitPane(pane.id, side);
-    } else if (action === "newWorkspace") this.createWorkspace();
-    else if (action === "newTab") this.createTab(undefined, options);
+    } else if (action === "newWorkspace") this.createWorkspace(true);
+    else if (action === "newTab") this.createTab(undefined, options, true);
     else if (action === "closeTab") {
       const pane = this.focusedPane();
       const tab = pane?.tabs.find((item) => item.id === pane.activeTabId);
@@ -451,11 +463,11 @@ export class WorkspaceController {
     this.view.setFocusedPane(paneId);
   }
 
-  private createWorkspace() {
-    this.enqueue(() => this.addWorkspace());
+  private createWorkspace(afterActive = false) {
+    this.enqueue(() => this.addWorkspace(afterActive));
   }
 
-  private async addWorkspace() {
+  private async addWorkspace(afterActive = false) {
     if (this.state.workspaces.length >= MAX_WORKSPACES) return;
     const cwd = await this.resolveDirectory();
     const pane = makePane(cwd);
@@ -465,8 +477,18 @@ export class WorkspaceController {
       root: pane,
       focusedPaneId: pane.id,
     };
-    this.state.workspaces.push(workspace);
+    this.state.workspaces.splice(
+      afterActive
+        ? insertionIndexAfter(
+            this.state.workspaces,
+            this.state.activeWorkspaceId,
+          )
+        : this.state.workspaces.length,
+      0,
+      workspace,
+    );
     this.state.activeWorkspaceId = workspace.id;
+    this.renumberWorkspaces();
     this.commit();
     this.startTab(pane.tabs[0]);
   }
@@ -504,7 +526,11 @@ export class WorkspaceController {
     });
   }
 
-  private createTab(paneId?: string, options?: NewTerminalOptions) {
+  private createTab(
+    paneId?: string,
+    options?: NewTerminalOptions,
+    afterActive = false,
+  ) {
     const workspace = this.workspace();
     const sourcePaneId = paneId || this.focusedPane()?.id;
     this.enqueue(async () => {
@@ -532,7 +558,8 @@ export class WorkspaceController {
       const tab = makeTab(cwd);
       tab.profile = options?.profile;
       tab.backend = options?.backend || "direct";
-      pane.tabs.push(tab);
+      if (afterActive) insertTabAfterActive(pane, tab);
+      else pane.tabs.push(tab);
       pane.activeTabId = tab.id;
       pane.lastKnownCwd = cwd;
       workspace.focusedPaneId = pane.id;

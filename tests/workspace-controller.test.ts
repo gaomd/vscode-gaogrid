@@ -534,15 +534,17 @@ test("sidebar resize completion restores the current terminal without changing s
   assert.deepEqual(h.focused, []);
 });
 
-test("new tabs and nested splits inherit only the source pane and retain other selections", async () => {
+test("add-button tabs append while nested splits retain other selections", async () => {
   const h = harness();
   h.actions.createTab("b");
   await settled();
   const first = h.state().workspaces[0];
   const panes = getPanes(first.root);
   assert.equal(panes[0].activeTabId, "a-1");
-  assert.equal(panes[1].tabs.at(-1)?.cwd, "/backend");
   assert.equal(panes[1].tabs.length, 3);
+  assert.equal(panes[1].tabs[1].id, "b-2");
+  assert.equal(panes[1].tabs[2].cwd, "/backend");
+  assert.equal(panes[1].activeTabId, panes[1].tabs[2].id);
   assert.equal(h.focused.at(-1), panes[1].activeTabId);
   h.actions.splitPane("b", "bottom");
   await settled();
@@ -555,6 +557,80 @@ test("new tabs and nested splits inherit only the source pane and retain other s
   assert.equal(all.length, 3);
   assert.equal(all[2].tabs[0].cwd, "/backend");
   assert.equal(all[0].activeTabId, "a-1");
+});
+
+test("new-tab shortcut opens immediately after the active tab", async () => {
+  const h = harness();
+
+  h.controller.performAction("newTab");
+  await settled();
+
+  const tabs = getPanes(h.state().workspaces[0].root)[1].tabs;
+  assert.deepEqual(
+    tabs.map((tab) => tab.id),
+    ["b-1", tabs[1].id, "b-2"],
+  );
+  assert.equal(tabs[1].cwd, "/backend");
+  assert.equal(tabs[2].id, "b-2");
+});
+
+test("new workspaces open immediately after the active workspace", async () => {
+  const initial = fixture();
+  initial.workspaces.push({
+    id: "three",
+    name: "^3",
+    focusedPaneId: "d",
+    root: pane("d", "/third"),
+  });
+  initial.activeWorkspaceId = "two";
+  const h = harness(initial);
+
+  h.controller.performAction("newWorkspace");
+  await settled();
+
+  const workspaces = h.state().workspaces;
+  const created = workspaces[2];
+  assert.deepEqual(
+    workspaces.map((workspace) => workspace.id),
+    ["one", "two", created.id, "three"],
+  );
+  assert.deepEqual(
+    workspaces.map((workspace) => workspace.name),
+    ["^1", "^2", "^3", "^4"],
+  );
+  assert.equal(h.state().activeWorkspaceId, created.id);
+  assert.equal(created.root?.type, "pane");
+  assert.equal(
+    h.focused.at(-1),
+    created.root?.type === "pane" ? created.root.activeTabId : undefined,
+  );
+});
+
+test("workspace add button appends after the latest workspace", async () => {
+  const initial = fixture();
+  initial.workspaces.push({
+    id: "three",
+    name: "^3",
+    focusedPaneId: "d",
+    root: pane("d", "/third"),
+  });
+  initial.activeWorkspaceId = "two";
+  const h = harness(initial);
+
+  h.actions.createWorkspace();
+  await settled();
+
+  const workspaces = h.state().workspaces;
+  const created = workspaces[3];
+  assert.deepEqual(
+    workspaces.map((workspace) => workspace.id),
+    ["one", "two", "three", created.id],
+  );
+  assert.deepEqual(
+    workspaces.map((workspace) => workspace.name),
+    ["^1", "^2", "^3", "^4"],
+  );
+  assert.equal(h.state().activeWorkspaceId, created.id);
 });
 
 for (const [direction, arrow, letter, glyph] of [
@@ -998,7 +1074,8 @@ test("explicit cwd/profile override inheritance through the command action", asy
     profile: "/bin/bash",
   });
   await settled();
-  const tab = getPanes(h.state().workspaces[0].root)[1].tabs.at(-1)!;
+  const pane = getPanes(h.state().workspaces[0].root)[1];
+  const tab = pane.tabs.find((item) => item.id === pane.activeTabId)!;
   assert.equal(tab.cwd, "/explicit");
   assert.equal(tab.profile, "/bin/bash");
 });
@@ -1256,10 +1333,9 @@ test("the backend creation API accepts tmux directly without first creating a di
   });
   await settled();
   assert.equal(h.sent.at(-1).backend, "tmux");
-  assert.equal(
-    getPanes(h.state().workspaces[0].root)[1].tabs.at(-1)?.backend,
-    "tmux",
-  );
+  const pane = getPanes(h.state().workspaces[0].root)[1];
+  const tab = pane.tabs.find((item) => item.id === pane.activeTabId);
+  assert.equal(tab?.backend, "tmux");
 });
 
 test("new terminal defaults apply protected attach mode only to newly created tabs", async () => {
