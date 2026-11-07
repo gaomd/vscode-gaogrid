@@ -1117,6 +1117,56 @@ test("duplicate closes target the original tab once and collapse empty panes", a
   assert.equal(h.state().workspaces[0].root?.id, "a");
 });
 
+test("closing the active tab returns to one previous focus level", async () => {
+  const initial = fixture();
+  const root = initial.workspaces[0].root;
+  if (!root || root.type !== "split") throw new Error("missing split fixture");
+  const b = root.second;
+  const prototype = b.tabs[0];
+  b.tabs.push(
+    { ...prototype, id: "b-3", sessionId: "b-s3" },
+    { ...prototype, id: "b-4", sessionId: "b-s4" },
+  );
+  const h = harness(initial);
+
+  h.actions.activateTab("b", "b-2");
+  h.actions.activateTab("b", "b-3");
+  h.actions.closeTab("b", "b-3");
+  await settled();
+  let pane = getPanes(h.state().workspaces[0].root).find(
+    (item) => item.id === "b",
+  )!;
+  assert.equal(pane.activeTabId, "b-2");
+
+  // The previous-focus slot is consumed, so the next close falls back to the
+  // adjacent tab instead of walking backward through older focus history.
+  h.actions.closeTab("b", "b-2");
+  await settled();
+  pane = getPanes(h.state().workspaces[0].root).find(
+    (item) => item.id === "b",
+  )!;
+  assert.equal(pane.activeTabId, "b-4");
+});
+
+test("closing a newly created tab returns to the tab it replaced", async () => {
+  const h = harness();
+  h.actions.createTab("b");
+  await settled();
+  const pane = getPanes(h.state().workspaces[0].root).find(
+    (item) => item.id === "b",
+  )!;
+  const created = pane.tabs.find((tab) => tab.id === pane.activeTabId)!;
+
+  h.actions.closeTab("b", created.id);
+  await settled();
+
+  assert.equal(
+    getPanes(h.state().workspaces[0].root).find((item) => item.id === "b")
+      ?.activeTabId,
+    "b-1",
+  );
+});
+
 test("workspace close is atomic, aggregates all terminals, and focuses the adjacent workspace", async () => {
   const h = harness();
   h.close(async () => false);

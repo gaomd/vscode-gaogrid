@@ -104,6 +104,7 @@ export class WorkspaceController {
     transitioning: false,
   };
   private transfers: TransferSession[] = [];
+  private readonly lastFocusedTabs = new WeakMap<PaneNode, string>();
   private mutations: Promise<void> = Promise.resolve();
   private lastDistribution?: {
     workspaceId: string;
@@ -560,8 +561,7 @@ export class WorkspaceController {
       tab.backend = options?.backend || "direct";
       if (afterActive) insertTabAfterActive(pane, tab);
       else pane.tabs.push(tab);
-      pane.activeTabId = tab.id;
-      pane.lastKnownCwd = cwd;
+      this.selectTab(pane, tab.id);
       workspace.focusedPaneId = pane.id;
       this.commit();
       this.startTab(tab);
@@ -597,8 +597,7 @@ export class WorkspaceController {
         tab.backend = "tmux";
         tab.profile = source.profile;
         pane.tabs.push(tab);
-        pane.activeTabId = tab.id;
-        pane.lastKnownCwd = cwd;
+        this.selectTab(pane, tab.id);
         workspace.focusedPaneId = pane.id;
         this.commit();
         this.startTab(tab);
@@ -730,8 +729,7 @@ export class WorkspaceController {
         0,
         tab,
       );
-      targetPane.activeTabId = tab.id;
-      targetPane.lastKnownCwd = tab.cwd;
+      this.selectTab(targetPane, tab.id);
       targetWorkspace.focusedPaneId = targetPane.id;
       this.state.activeWorkspaceId = targetWorkspace.id;
       this.commit();
@@ -855,11 +853,17 @@ export class WorkspaceController {
     const pane = findPane(workspace?.root || null, paneId);
     if (!workspace || !pane || !pane.tabs.some((tab) => tab.id === tabId))
       return;
-    pane.activeTabId = tabId;
-    const tab = pane.tabs.find((item) => item.id === tabId)!;
-    pane.lastKnownCwd = tab.cwd;
+    this.selectTab(pane, tabId);
     workspace.focusedPaneId = paneId;
     this.commit();
+  }
+
+  private selectTab(pane: PaneNode, tabId: string) {
+    if (pane.activeTabId && pane.activeTabId !== tabId)
+      this.lastFocusedTabs.set(pane, pane.activeTabId);
+    pane.activeTabId = tabId;
+    pane.lastKnownCwd =
+      pane.tabs.find((tab) => tab.id === tabId)?.cwd || pane.lastKnownCwd;
   }
 
   private closeTabs(paneId: string, tabId?: string) {
@@ -872,12 +876,26 @@ export class WorkspaceController {
       const index = tabId ? pane.tabs.findIndex((tab) => tab.id === tabId) : 0;
       if (index < 0) return;
       const tabs = tabId ? [pane.tabs[index]] : [...pane.tabs];
+      const closingIds = new Set(tabs.map((tab) => tab.id));
+      const activeClosed =
+        !!pane.activeTabId && closingIds.has(pane.activeTabId);
+      const remembered = this.lastFocusedTabs.get(pane);
       if (!(await this.requestClose(tabs, tabId ? "terminal" : "pane"))) return;
       tabs.forEach((tab) => this.terminals.disposeTab(tab));
       pane.tabs = pane.tabs.filter((tab) => !tabs.includes(tab));
-      if (!pane.tabs.some((tab) => tab.id === pane.activeTabId))
-        pane.activeTabId =
-          pane.tabs[Math.min(index, pane.tabs.length - 1)]?.id || null;
+      if (activeClosed) {
+        this.lastFocusedTabs.delete(pane);
+        const next =
+          (remembered &&
+            pane.tabs.some((tab) => tab.id === remembered) &&
+            remembered) ||
+          pane.tabs[Math.min(index, pane.tabs.length - 1)]?.id ||
+          null;
+        pane.activeTabId = next;
+        pane.lastKnownCwd =
+          pane.tabs.find((tab) => tab.id === next)?.cwd || pane.lastKnownCwd;
+      } else if (remembered && closingIds.has(remembered))
+        this.lastFocusedTabs.delete(pane);
       if (!pane.tabs.length) {
         const target = findPaneAfterRemoval(workspace.root, paneId);
         workspace.root = removePane(workspace.root, paneId);
@@ -930,8 +948,7 @@ export class WorkspaceController {
         0,
         source.tab,
       );
-      targetPane.activeTabId = source.tab.id;
-      targetPane.lastKnownCwd = source.tab.cwd;
+      this.selectTab(targetPane, source.tab.id);
       targetWorkspace.focusedPaneId = targetPane.id;
       this.state.activeWorkspaceId = targetWorkspace.id;
       this.commit();
@@ -1103,8 +1120,7 @@ export class WorkspaceController {
           targetWorkspace.focusedPaneId = fresh.id;
         } else {
           targetPane.tabs.push(source.tab);
-          targetPane.activeTabId = source.tab.id;
-          targetPane.lastKnownCwd = source.tab.cwd;
+          this.selectTab(targetPane, source.tab.id);
           targetWorkspace.focusedPaneId = targetPane.id;
         }
       }
