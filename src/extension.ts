@@ -61,6 +61,7 @@ export function activate(context: vscode.ExtensionContext) {
     | undefined;
   let viewReady = false;
   let viewGeneration = 0;
+  let activeSessionId: string | undefined;
   const endedSessions = new Set<string>();
   let state = restoreState(
     context.workspaceState.get(STATE_KEY) ??
@@ -92,6 +93,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
       }
       if (event.type === "sessionEnded") {
+        if (event.sessionId === activeSessionId) activeSessionId = undefined;
         outputStreams.unsubscribe(event.sessionId);
         endedSessions.add(event.sessionId);
         if (removeTabFromState(state, event.sessionId)) void persist();
@@ -513,6 +515,7 @@ export function activate(context: vscode.ExtensionContext) {
                 ? message.sessionId
                 : undefined;
             manager.setForeground(sessionId);
+            activeSessionId = sessionId;
             if (sessionId) manager.markFocused(sessionId);
           }
           break;
@@ -812,9 +815,16 @@ export function activate(context: vscode.ExtensionContext) {
             paths.push(...(await nativeDroppedPaths(names)));
           if (!paths.length && names.length) {
             // Sandboxed webviews may receive file names without absolute paths.
+            const cwd = await manager.cwd(message.sessionId);
+            const defaultDirectory = cwd
+              ? await validDirectory(cwd)
+              : undefined;
             const selected = await vscode.window.showOpenDialog({
               title: "Select dropped files or folders to insert their paths",
               openLabel: "Insert Paths",
+              defaultUri: defaultDirectory
+                ? vscode.Uri.file(defaultDirectory)
+                : undefined,
               canSelectFiles: true,
               canSelectFolders: true,
               canSelectMany: true,
@@ -933,6 +943,11 @@ export function activate(context: vscode.ExtensionContext) {
       (options?: NewTerminalOptions) =>
         post({ type: "action", action: "newTab", options }),
     ),
+    vscode.commands.registerCommand(
+      "gaogrid.insertPaths",
+      (resource?: unknown, selectedResources?: readonly unknown[]) =>
+        insertPaths(resource, selectedResources),
+    ),
   );
   context.subscriptions.push(
     vscode.commands.registerCommand("gaogrid.closeTab", () =>
@@ -1018,6 +1033,53 @@ export function activate(context: vscode.ExtensionContext) {
     if (switchingWindow && (message as { type?: string }).type === "action")
       return;
     view?.webview.postMessage(message);
+  }
+
+  async function insertPaths(
+    resource?: unknown,
+    selectedResources?: readonly unknown[],
+  ) {
+    const selected = selectedResources?.length
+      ? selectedResources
+      : resource === undefined
+        ? []
+        : [resource];
+    const paths = selected
+      .map(droppedPath)
+      .filter((value): value is string => !!value);
+    if (!view || !viewReady) await revealSidebar();
+    if (!activeSessionId) {
+      void vscode.window.showWarningMessage(
+        "Focus a GaoGrid terminal before inserting paths.",
+      );
+      return;
+    }
+    if (!paths.length) {
+      const cwd = await manager.cwd(activeSessionId);
+      const defaultDirectory = cwd ? await validDirectory(cwd) : undefined;
+      const uris = await vscode.window.showOpenDialog({
+        title: "Select files or folders to insert into the GaoGrid terminal",
+        openLabel: "Insert Paths",
+        defaultUri: defaultDirectory
+          ? vscode.Uri.file(defaultDirectory)
+          : undefined,
+        canSelectFiles: true,
+        canSelectFolders: true,
+        canSelectMany: true,
+      });
+      if (!uris) return;
+      paths.push(
+        ...uris.filter((uri) => uri.scheme === "file").map((uri) => uri.fsPath),
+      );
+    }
+    const text = manager.quotePaths(activeSessionId, [...new Set(paths)]);
+    if (!text) {
+      void vscode.window.showWarningMessage(
+        "The focused GaoGrid terminal is not ready.",
+      );
+      return;
+    }
+    post({ type: "paste", sessionId: activeSessionId, text });
   }
 }
 export async function deactivate() {

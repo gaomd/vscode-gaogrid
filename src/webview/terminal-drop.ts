@@ -13,8 +13,15 @@ export function installTerminalDrop(
   host: HTMLElement,
   onDrop: (resources: unknown[], names: string[]) => void,
   onDrag?: (names: string[]) => void,
+  onFileDragState?: (active: boolean) => void,
 ) {
   const listeners = new AbortController();
+  let fileDragActive = false;
+  const setFileDragActive = (active: boolean) => {
+    if (fileDragActive === active) return;
+    fileDragActive = active;
+    onFileDragState?.(active);
+  };
   // Handle drops at the terminal host before xterm or child elements can act
   // on them. This applies once the workbench delivers the drag into the webview.
   const options = { signal: listeners.signal, capture: true };
@@ -31,6 +38,7 @@ export function installTerminalDrop(
     event.preventDefault();
     event.stopPropagation();
     event.dataTransfer!.dropEffect = "copy";
+    setFileDragActive(true);
   };
   host.addEventListener("dragenter", accept, options);
   const prewarmPaths = (event: DragEvent) => {
@@ -56,10 +64,26 @@ export function installTerminalDrop(
     options,
   );
   host.addEventListener(
+    "dragleave",
+    (event) => {
+      if (
+        typeof Node !== "undefined" &&
+        event.relatedTarget instanceof Node &&
+        host.contains(event.relatedTarget)
+      )
+        return;
+      setFileDragActive(false);
+    },
+    options,
+  );
+  if (typeof window !== "undefined")
+    window.addEventListener("dragend", () => setFileDragActive(false), options);
+  host.addEventListener(
     "drop",
     (event) => {
       if (!accepts(event)) return;
       accept(event);
+      setFileDragActive(false);
       const transfer = event.dataTransfer!;
       const resources: unknown[] = [];
       // Plain text is only a compatibility fallback after the drag has been
@@ -100,7 +124,10 @@ export function installTerminalDrop(
     },
     options,
   );
-  return () => listeners.abort();
+  return () => {
+    setFileDragActive(false);
+    listeners.abort();
+  };
 }
 
 function getFileNames(transfer: DataTransfer): string[] {

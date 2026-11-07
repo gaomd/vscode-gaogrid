@@ -846,6 +846,23 @@ button {
   position: relative;
 }
 
+.terminal-mount[data-file-drag-preview="true"]::after {
+  position: absolute;
+  z-index: 6;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--vscode-focusBorder);
+  border-radius: calc(var(--gg-terminal-radius) - var(--gg-space));
+  background: color-mix(in srgb, var(--vscode-focusBorder) 18%, transparent);
+  color: var(--vscode-foreground);
+  content: "Drop to insert paths";
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+}
+
 .xterm .xterm-viewport {
   /* xterm 6 themes the row grid; unused viewport space shows the surface. */
   background-color: transparent;

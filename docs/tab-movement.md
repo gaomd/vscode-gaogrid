@@ -23,5 +23,11 @@ Drop files or folders from Finder or Explorer onto a terminal to insert
 shell-quoted absolute paths without submitting the command. Explorer drops read
 VS Code's resource URI payload synchronously. A webview can only handle Explorer
 drops that the VS Code workbench forwards; if the workbench suppresses a drag,
-use Explorer's **Copy Path** command and paste into the terminal. If the runtime
-cannot resolve a Finder drop, a file picker lets you select the paths.
+use **GaoGrid: Insert File Paths into Terminal** from Explorer's context menu
+or the Command Palette. VS Code 1.140 and newer currently suppress many Explorer
+drags inside extension webviews, including when Shift is held. This is tracked
+in [VS Code #339036](https://github.com/microsoft/vscode/issues/339036) and was
+introduced by the cross-site iframe drag change in
+[Electron #53669](https://github.com/electron/electron/pull/53669). If the
+runtime cannot resolve a Finder drop, the file picker opens in the focused
+terminal's current directory.

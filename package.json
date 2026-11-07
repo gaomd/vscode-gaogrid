@@ -55,6 +55,10 @@
         "icon": "$(add)"
       },
       {
+        "command": "gaogrid.insertPaths",
+        "title": "GaoGrid: Insert File Paths into Terminal"
+      },
+      {
         "command": "gaogrid.closeTab",
         "title": "GaoGrid: Close Terminal Tab",
         "icon": "$(close)"
@@ -133,6 +137,12 @@
       }
     ],
     "menus": {
+      "explorer/context": [
+        {
+          "command": "gaogrid.insertPaths",
+          "group": "gaogrid@1"
+        }
+      ],
       "view/title": [
         {
           "command": "gaogrid.detachWindow",

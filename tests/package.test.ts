@@ -25,6 +25,10 @@ test("production webview CSS includes terminal layout and input styles", async (
   );
   assert.match(css, /\.xterm \.xterm-helper-textarea\s*\{[^}]*opacity:\s*0/);
   assert.match(css, /\.xterm \.xterm-viewport\s*\{[^}]*overflow-y:\s*scroll/);
+  assert.match(
+    css,
+    /\.terminal-mount\[data-file-drag-preview=true\]::after\s*\{[^}]*content:\s*"Drop to insert paths"/,
+  );
 });
 
 test("release preparation makes every bundled pty helper executable", async (t) => {

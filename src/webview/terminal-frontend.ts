@@ -401,6 +401,10 @@ export class TerminalFrontend {
         if (names.length)
           this.send({ type: "nativeDropCandidate", sessionId, names });
       },
+      (active) => {
+        if (active) host.dataset.fileDragPreview = "true";
+        else delete host.dataset.fileDragPreview;
+      },
     );
   }
 

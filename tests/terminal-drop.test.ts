@@ -5,11 +5,15 @@ import { installTerminalDrop } from "../src/webview/terminal-drop";
 function harness() {
   const host = new EventTarget();
   const drops: { resources: unknown[]; names: string[] }[] = [];
+  const dragStates: boolean[] = [];
   const dispose = installTerminalDrop(
     host as unknown as HTMLElement,
     (resources, names) => drops.push({ resources, names }),
+    undefined,
+    (active) => dragStates.push(active),
   );
   return {
+    dragStates,
     drops,
     dispose,
     dispatch(
@@ -47,10 +51,18 @@ test("file drags are consumed and disposing the terminal removes its drop handle
     assert.equal(stopped, true);
     assert.equal(transfer.dropEffect, "copy");
   }
+  assert.deepEqual(h.dragStates, [true, false]);
   assert.deepEqual(h.drops, [{ resources: [], names: ["file.txt"] }]);
   h.dispose();
   assert.equal(h.dispatch("drop", { Files: "" }).event.defaultPrevented, false);
   assert.equal(h.drops.length, 1);
+});
+
+test("file drag preview clears when leaving the terminal", () => {
+  const h = harness();
+  h.dispatch("dragenter", { Files: "" }, [{ name: "file.txt" }]);
+  h.dispatch("dragleave", { Files: "" });
+  assert.deepEqual(h.dragStates, [true, false]);
 });
 
 test("Explorer's full internal URI list precedes the truncated public list", () => {
