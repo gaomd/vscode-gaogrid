@@ -12,7 +12,7 @@ export interface WorkspaceActions {
   activateWorkspace(workspaceId: string): void;
   closeWorkspace(workspaceId: string): void;
   focusPane(paneId: string): void;
-  createTab(paneId: string): void;
+  createTab(paneId: string, afterActive?: boolean): void;
   protectionAvailable(): boolean;
   terminalPreferences(): TerminalPreferences;
   updatePreferences(preferences: TerminalPreferences): void;

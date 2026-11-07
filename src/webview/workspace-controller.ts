@@ -138,7 +138,8 @@ export class WorkspaceController {
       activateWorkspace: (workspaceId) => this.activateWorkspace(workspaceId),
       closeWorkspace: (workspaceId) => this.closeWorkspace(workspaceId),
       focusPane: (paneId) => this.focusPane(paneId),
-      createTab: (paneId) => this.createTab(paneId),
+      createTab: (paneId, afterActive = false) =>
+        this.createTab(paneId, undefined, afterActive),
       protectionAvailable: () =>
         this.capabilities.tmux.available &&
         this.capabilities.tmux.supported !== false,

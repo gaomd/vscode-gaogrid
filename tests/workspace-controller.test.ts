@@ -572,6 +572,23 @@ test("new-tab shortcut opens immediately after the active tab", async () => {
   );
   assert.equal(tabs[1].cwd, "/backend");
   assert.equal(tabs[2].id, "b-2");
+  assert.equal(h.focused.at(-1), tabs[1].id);
+});
+
+test("context-menu new tab opens immediately after the active tab", async () => {
+  const h = harness();
+
+  h.actions.createTab("b", true);
+  await settled();
+
+  const tabs = getPanes(h.state().workspaces[0].root)[1].tabs;
+  assert.equal(tabs.length, 3);
+  assert.deepEqual(
+    tabs.map((tab) => tab.id),
+    ["b-1", tabs[1].id, "b-2"],
+  );
+  assert.equal(tabs[1].cwd, "/backend");
+  assert.equal(tabs[2].id, "b-2");
 });
 
 test("new workspaces open immediately after the active workspace", async () => {

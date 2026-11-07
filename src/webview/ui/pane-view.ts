@@ -484,7 +484,7 @@ export class PaneView {
         shortcut: "⌘T",
         disabled: this.node.tabs.length >= MAX_TABS_PER_PANE,
         separatorBefore: true,
-        run: () => this.actions.createTab(id),
+        run: () => this.actions.createTab(id, true),
       });
     items.push({
       label: "Copy Current Directory",
