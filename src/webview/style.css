@@ -809,18 +809,22 @@ button {
 
 .terminal-surface[data-drop-side="left"]::after {
   inset: 0 50% 0 0;
+  border-radius: var(--gg-terminal-radius) 0 0 var(--gg-terminal-radius);
 }
 
 .terminal-surface[data-drop-side="right"]::after {
   inset: 0 0 0 50%;
+  border-radius: 0 var(--gg-terminal-radius) var(--gg-terminal-radius) 0;
 }
 
 .terminal-surface[data-drop-side="top"]::after {
   inset: 0 0 50%;
+  border-radius: var(--gg-terminal-radius) var(--gg-terminal-radius) 0 0;
 }
 
 .terminal-surface[data-drop-side="bottom"]::after {
   inset: 50% 0 0;
+  border-radius: 0 0 var(--gg-terminal-radius) var(--gg-terminal-radius);
 }
 
 .terminal-pane[data-focused="true"] > .terminal-surface {

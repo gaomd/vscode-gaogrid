@@ -29,6 +29,13 @@ test("production webview CSS includes terminal layout and input styles", async (
     css,
     /\.terminal-mount\[data-file-drag-preview=true\]::after\s*\{[^}]*content:\s*"Drop to insert paths"/,
   );
+  for (const side of ["left", "right", "top", "bottom"])
+    assert.match(
+      css,
+      new RegExp(
+        `\\.terminal-surface\\[data-drop-side=${side}\\]::after\\s*\\{[^}]*border-radius:`,
+      ),
+    );
 });
 
 test("release preparation makes every bundled pty helper executable", async (t) => {
