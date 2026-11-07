@@ -474,11 +474,12 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "watch": "node esbuild.js --watch",
-    "package": "npx --yes @vscode/vsce@^4.0.0 package --baseContentUrl https://github.com/gaomd/vscode-gaogrid/blob/main/",
+    "package": "node scripts/package.js",
     "release": "npx --yes @vscode/vsce@^4.0.0 publish --baseContentUrl https://github.com/gaomd/vscode-gaogrid/blob/main/",
     "vscode:prepublish": "node scripts/prepare-node-pty.js && npm run compile"
   },
   "dependencies": {
+    "@vscode/extension-telemetry": "^1.5.2",
     "node-pty": "^1.1.0"
   },
   "devDependencies": {

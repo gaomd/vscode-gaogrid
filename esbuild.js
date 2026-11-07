@@ -12,6 +12,11 @@ async function build() {
     ...common,
     entryPoints: ["src/extension.ts"],
     outfile: "dist/extension.js",
+    define: {
+      "process.env.TELEMETRY_CONNECTION_STRING": JSON.stringify(
+        process.env.TELEMETRY_CONNECTION_STRING || "",
+      ),
+    },
   });
   const webview = await esbuild.context({
     bundle: true,

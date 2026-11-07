@@ -15,6 +15,7 @@ import { test } from "node:test";
 import { promisify } from "node:util";
 
 const { prepareSpawnHelpers } = require("../scripts/prepare-node-pty");
+const { packageFileName } = require("../scripts/package");
 
 test("production webview CSS includes terminal layout and input styles", async () => {
   await promisify(execFile)(process.execPath, ["esbuild.js"]);
@@ -50,6 +51,30 @@ test("production webview CSS includes terminal layout and input styles", async (
         `\\.terminal-surface\\[data-drop-side=${side}\\]::after\\s*\\{[^}]*border-radius:`,
       ),
     );
+});
+
+test("VS Code telemetry metadata exposes only extension usage", async () => {
+  const manifest = JSON.parse(await readFile("telemetry.json", "utf8")) as {
+    events: Record<string, unknown>;
+    commonProperties: Record<string, unknown>;
+  };
+  assert.deepEqual(Object.keys(manifest.events), ["extension_usage"]);
+  assert.ok(manifest.commonProperties.appName);
+  assert.ok(manifest.commonProperties.appHost);
+  assert.ok(manifest.commonProperties.uriScheme);
+  assert.ok(manifest.commonProperties["common.vscodemachineid"]);
+  assert.ok(manifest.commonProperties["common.vscodesessionid"]);
+});
+
+test("packaged VSIX uses the Marketplace identifier as its file prefix", () => {
+  assert.equal(
+    packageFileName({
+      publisher: "gaomd",
+      name: "gaogrid",
+      version: "1.2.3",
+    }),
+    "vscode-gaomd.gaogrid-1.2.3.vsix",
+  );
 });
 
 test("release preparation makes every bundled pty helper executable", async (t) => {

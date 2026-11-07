@@ -19,6 +19,7 @@ import type {
   WindowPresentation,
 } from "./terminal-protocol";
 import { STATE_KEY, LEGACY_STATE_KEY, restoreState } from "./persistence-store";
+import { GaoGridTelemetry } from "./telemetry";
 
 interface NativeDropCandidate {
   names: string[];
@@ -72,7 +73,11 @@ export function activate(context: vscode.ExtensionContext) {
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
   let stopping = false;
   const log = vscode.window.createOutputChannel("GaoGrid");
-  context.subscriptions.push(log);
+  const telemetry = new GaoGridTelemetry(
+    context.extensionMode !== vscode.ExtensionMode.Test,
+  );
+  context.subscriptions.push(log, telemetry);
+  telemetry.recordUsage();
   const defaultDirectories = () => [workspaceDirectory(), os.homedir()];
   const manager = new PtyManager(
     (message) => {
@@ -554,8 +559,8 @@ export function activate(context: vscode.ExtensionContext) {
           await persist();
           break;
         case "lifecycle": {
+          const request = message.request as LifecycleRequest;
           try {
-            const request = message.request as LifecycleRequest;
             let value: LifecycleResult;
             if (request.kind === "resolveCwd") {
               value =
@@ -835,9 +840,8 @@ export function activate(context: vscode.ExtensionContext) {
             paths.push(...selected.map((uri) => uri.fsPath));
           }
           if (!paths.length) break;
-          const text = manager.quotePaths(message.sessionId, [
-            ...new Set(paths),
-          ]);
+          const uniquePaths = [...new Set(paths)];
+          const text = manager.quotePaths(message.sessionId, uniquePaths);
           if (text)
             reply({
               type: "paste",
@@ -1088,7 +1092,8 @@ export function activate(context: vscode.ExtensionContext) {
         : undefined;
       if (containing) lastInsertPathDirectories.set(sessionId, containing);
     }
-    const text = manager.quotePaths(sessionId, [...new Set(paths)]);
+    const uniquePaths = [...new Set(paths)];
+    const text = manager.quotePaths(sessionId, uniquePaths);
     if (!text) {
       void vscode.window.showWarningMessage(
         "The focused GaoGrid terminal is not ready.",

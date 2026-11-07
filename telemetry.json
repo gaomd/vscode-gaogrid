@@ -1,0 +1,92 @@
+{
+  "events": {
+    "extension_usage": {}
+  },
+  "commonProperties": {
+    "appName": {
+      "classification": "PublicNonPersonalData",
+      "purpose": "FeatureInsight",
+      "comment": "Editor application name reported by VS Code, such as Visual Studio Code or Cursor"
+    },
+    "appHost": {
+      "classification": "SystemMetaData",
+      "purpose": "FeatureInsight",
+      "comment": "Hosted application location such as desktop, web, github.dev, or codespaces"
+    },
+    "uriScheme": {
+      "classification": "SystemMetaData",
+      "purpose": "FeatureInsight",
+      "comment": "Editor URI scheme used to distinguish compatible editor forks"
+    },
+    "common.vscodemachineid": {
+      "classification": "EndUserPseudonymizedInformation",
+      "purpose": "FeatureInsight",
+      "comment": "VS Code's built-in machine identifier used for unique installation counts"
+    },
+    "common.vscodesessionid": {
+      "classification": "EndUserPseudonymizedInformation",
+      "purpose": "FeatureInsight",
+      "comment": "VS Code's built-in identifier for the current editor session"
+    },
+    "common.extname": {
+      "classification": "PublicNonPersonalData",
+      "purpose": "FeatureInsight",
+      "comment": "Extension name"
+    },
+    "common.extversion": {
+      "classification": "PublicNonPersonalData",
+      "purpose": "FeatureInsight",
+      "comment": "Extension version"
+    },
+    "common.vscodeversion": {
+      "classification": "SystemMetaData",
+      "purpose": "FeatureInsight",
+      "comment": "VS Code version running the extension"
+    },
+    "common.vscodecommithash": {
+      "classification": "SystemMetaData",
+      "purpose": "FeatureInsight",
+      "comment": "VS Code build commit"
+    },
+    "common.os": {
+      "classification": "SystemMetaData",
+      "purpose": "FeatureInsight",
+      "comment": "Operating system"
+    },
+    "common.platformversion": {
+      "classification": "SystemMetaData",
+      "purpose": "FeatureInsight",
+      "comment": "Operating-system platform version"
+    },
+    "common.product": {
+      "classification": "SystemMetaData",
+      "purpose": "FeatureInsight",
+      "comment": "Editor product hosting the extension"
+    },
+    "common.uikind": {
+      "classification": "SystemMetaData",
+      "purpose": "FeatureInsight",
+      "comment": "Desktop or web editor UI"
+    },
+    "common.remotename": {
+      "classification": "SystemMetaData",
+      "purpose": "FeatureInsight",
+      "comment": "Remote extension-host type, if any"
+    },
+    "common.nodeArch": {
+      "classification": "SystemMetaData",
+      "purpose": "FeatureInsight",
+      "comment": "Architecture of the extension host"
+    },
+    "common.telemetryclientversion": {
+      "classification": "SystemMetaData",
+      "purpose": "FeatureInsight",
+      "comment": "Version of the official VS Code telemetry SDK"
+    },
+    "common.isnewappinstall": {
+      "classification": "SystemMetaData",
+      "purpose": "FeatureInsight",
+      "comment": "Whether VS Code associates the event with a new app installation"
+    }
+  }
+}

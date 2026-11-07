@@ -5,6 +5,7 @@
 .codex/**
 .gitignore
 .prettierignore
+.env.example
 src/**
 tests/**
 scripts/**
@@ -18,6 +19,10 @@ dist/**
 **/*.map
 **/*.pdb
 # JavaScript dependencies are embedded in dist; node-pty stays external.
+node_modules/@microsoft/**
+node_modules/@nevware21/**
+node_modules/@vscode/**
+node_modules/tslib/**
 node_modules/node-addon-api/**
 # Keep node-pty's runtime, native prebuilds, helpers, and licenses.
 node_modules/node-pty/binding.gyp
