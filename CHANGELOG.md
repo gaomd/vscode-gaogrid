@@ -2,6 +2,30 @@
 
 All notable changes to GaoGrid are documented here.
 
+## [0.8.0] - 2026-11-07
+
+### Features
+
+- Show a terminal drop target when a compatible file or folder drag reaches the
+  webview. This is visual feedback only and does not bypass VS Code drag
+  routing limitations.
+- Add **GaoGrid: Insert File Paths into Terminal** to Explorer's context menu
+  for inserting selected file and folder URIs without drag and drop.
+- Add **Insert Paths…** to the terminal context menu. It opens a native picker
+  for that pane's active terminal and remembers the last selected containing
+  directory separately for each terminal during the current Extension Host
+  session. The location falls back to the terminal cwd when unavailable and is
+  not persisted across reloads.
+
+### Fixes
+
+- Insert shortcut-created tabs and workspaces, as well as context-menu tabs,
+  after the active item while keeping toolbar add actions append-only.
+- Return to the previous active tab after closing the current one without
+  retaining deeper focus history.
+- Keep split drop previews inside the rounded terminal surface by rounding only
+  their outer corners while leaving the inner split edges square.
+
 ## [0.7.0] - 2026-11-02
 
 ### Features
