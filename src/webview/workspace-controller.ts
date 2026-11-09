@@ -1297,7 +1297,7 @@ export class WorkspaceController {
       kind: "resolveCwd",
       explicitCwd,
       sessionId: active?.sessionId,
-      lastKnownCwd: pane?.lastKnownCwd || active?.cwd,
+      lastKnownCwd: active?.cwd || pane?.lastKnownCwd,
     })) as string;
   }
 

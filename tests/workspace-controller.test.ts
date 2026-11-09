@@ -626,6 +626,24 @@ test("new-tab shortcut opens immediately after the active tab", async () => {
   assert.equal(h.focused.at(-1), tabs[1].id);
 });
 
+test("new tabs prefer the active tab cwd over stale pane cwd", async () => {
+  const initial = fixture();
+  const pane = getPanes(initial.workspaces[0].root)[0];
+  pane.lastKnownCwd = "/stale";
+  pane.tabs[0].cwd = "/current";
+  const h = harness(initial);
+
+  h.actions.createTab("a");
+  await settled();
+
+  const request = h.requests.find(
+    (item) => item.kind === "resolveCwd" && item.sessionId === "a-s1",
+  );
+  assert.equal(request?.lastKnownCwd, "/current");
+  const tabs = getPanes(h.state().workspaces[0].root)[0].tabs;
+  assert.equal(tabs.at(-1)?.cwd, "/current");
+});
+
 test("context-menu new tab opens immediately after the active tab", async () => {
   const h = harness();
 
