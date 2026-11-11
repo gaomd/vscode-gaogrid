@@ -83,3 +83,18 @@ test("WebGL requires an explicit on setting and auto remains on the DOM renderer
   view.applySettings({ gpuAcceleration: "on" });
   assert.equal(view.useWebgl, true);
 });
+
+test("fit waits for a second animation frame after layout changes", (t) => {
+  const f = frontend(t);
+  const view = f.view as unknown as {
+    scheduleFit(): void;
+    fitVisible(): void;
+  };
+  let fits = 0;
+  view.fitVisible = () => fits++;
+
+  view.scheduleFit();
+  assert.equal(fits, 0);
+  f.runAnimationFrames();
+  assert.equal(fits, 1);
+});

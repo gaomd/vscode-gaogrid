@@ -372,8 +372,13 @@ export class TerminalFrontend {
   scheduleFit() {
     if (this.frame !== undefined) return;
     this.frame = requestAnimationFrame(() => {
-      this.frame = undefined;
-      this.fitVisible();
+      // Tab activation and sidebar layout can settle one frame after the
+      // visibility change. Wait for the following frame before measuring so
+      // a transient narrow host is never reported to the PTY or tmux.
+      this.frame = requestAnimationFrame(() => {
+        this.frame = undefined;
+        this.fitVisible();
+      });
     });
   }
 

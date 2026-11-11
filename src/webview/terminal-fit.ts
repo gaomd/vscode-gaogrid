@@ -18,26 +18,28 @@ export class TerminalFitAddon extends FitAddon {
     const host = terminal?.element?.parentElement;
     if (!dimensions || !terminal || !screen || !host) return dimensions;
 
-    // Public DOM measurements avoid xterm's private viewport and its 15px
-    // fallback reservation. Canvas pixels retain precision across display zoom.
-    const canvas = screen.querySelector<HTMLCanvasElement>(
-      "canvas:not(.xterm-image-layer)",
-    );
-    const cellWidth = canvas
-      ? canvas.width / terminal.cols / window.devicePixelRatio
-      : screen.getBoundingClientRect().width / terminal.cols;
+    // The screen's CSS width is updated with the terminal buffer. Prefer it
+    // over canvas device pixels so display-density changes and a temporarily
+    // hidden render surface cannot distort the measured cell width.
+    const screenWidth =
+      Number.parseFloat(screen.style.width) ||
+      screen.getBoundingClientRect().width;
+    const cellWidth =
+      terminal.cols > 0 && screenWidth > 0 ? screenWidth / terminal.cols : 0;
     const scrollbarWidth = Number.parseFloat(
       getComputedStyle(host).getPropertyValue("--gg-terminal-scrollbar-width"),
     );
-    if (cellWidth > 0)
-      dimensions.cols = Math.max(
-        2,
-        Math.floor(
-          (host.clientWidth -
-            (Number.isFinite(scrollbarWidth) ? scrollbarWidth : 0)) /
-            cellWidth,
-        ),
-      );
+    if (cellWidth > 0) {
+      const availableWidth =
+        host.clientWidth -
+        (Number.isFinite(scrollbarWidth) ? scrollbarWidth : 0);
+      const cols = Math.floor(availableWidth / cellWidth);
+      // A transient layout can briefly report a few pixels while a tab is
+      // becoming visible. Do not turn that invalid measurement into a real
+      // two-column terminal resize; retry when the host has settled.
+      if (cols < 2) return undefined;
+      dimensions.cols = cols;
+    }
     return dimensions;
   }
 }
