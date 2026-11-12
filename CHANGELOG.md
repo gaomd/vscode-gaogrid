@@ -2,6 +2,26 @@
 
 All notable changes to GaoGrid are documented here.
 
+## [0.9.0] - 2026-11-12
+
+### Features
+
+- Report one privacy-focused extension usage event through the official VS Code
+  telemetry SDK when editor telemetry is enabled. Terminal content, commands,
+  paths, workspace names, tab titles, and session identifiers are excluded.
+
+### Fixes
+
+- Unify tab, workspace, and tmux transfer drag handling. The full tab strip and
+  add button now accept drops, trailing drops append correctly, split moves use
+  the correct insertion target, and cancelled drags clear every indicator.
+- Stabilize terminal resize calculations after tab switches, avoiding transient
+  two-column PTY or tmux resizes while the webview layout settles.
+- Inherit the active tab's current working directory when opening a new tab,
+  rather than a stale pane-level directory.
+- Preserve the source workspace's focus when moving a tab to another workspace,
+  and focus the destination only when the source workspace is removed.
+
 ## [0.8.0] - 2026-11-07
 
 ### Features
