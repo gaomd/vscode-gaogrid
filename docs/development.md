@@ -35,7 +35,8 @@ npm run package
 ```
 
 This runs the existing `vscode:prepublish` build and creates
-`gaogrid-<version>.vsix` in the project root, using the version from `package.json`.
+`vscode-gaomd.gaogrid-<version>.vsix` in the project root, using the version
+from `package.json`.
 Relative documentation links in the packaged README point to the `main` branch.
 To choose another output path, use `npm run package -- --out /path/to/gaogrid.vsix`.
 The prepublish hook repairs the node-pty helper's executable bit before
@@ -56,6 +57,11 @@ npm version patch --no-git-tag-version
 npm run package
 ```
 
+Set `TELEMETRY_CONNECTION_STRING` in the build environment to embed the
+production Application Insights connection string. Do not commit its value. If
+the variable is absent, packaging still succeeds but the telemetry reporter is
+disabled.
+
 Install the generated VSIX to review the release, then commit the version and
 changelog changes. Add an annotated tag at that release commit, using the version
 from `package.json` (for example, `git tag -a v0.6.3 -m "GaoGrid v0.6.3"`).
@@ -68,7 +74,7 @@ npm run release
 The release command rebuilds and publishes to the VS Code Marketplace using
 vsce's configured publisher credentials. It does not increment the version,
 create a Git tag, or push commits. Publishing requires authentication for the
-`gaomd` publisher.
+`gaomd` publisher, such as `VSCE_PAT` in the environment or `vsce login`.
 
 ## Webview Architecture And UI
 
