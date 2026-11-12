@@ -1082,6 +1082,7 @@ export class WorkspaceController {
       if (!source || !targetWorkspace || source.workspace === targetWorkspace)
         return;
 
+      const activeWorkspaceId = this.state.activeWorkspaceId;
       const targetPane =
         findPane(targetWorkspace.root, targetWorkspace.focusedPaneId) ||
         getPanes(targetWorkspace.root)[0];
@@ -1127,7 +1128,13 @@ export class WorkspaceController {
           targetWorkspace.focusedPaneId = targetPane.id;
         }
       }
-      this.state.activeWorkspaceId = targetWorkspace.id;
+      if (
+        this.state.workspaces.some(
+          (workspace) => workspace.id === activeWorkspaceId,
+        )
+      )
+        this.state.activeWorkspaceId = activeWorkspaceId;
+      else this.state.activeWorkspaceId = targetWorkspace.id;
       this.commit();
     });
   }

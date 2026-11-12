@@ -1373,7 +1373,7 @@ test("closing an unfocused pane leaves the focused pane unchanged", async () => 
   assert.equal(h.focused.at(-1), "unrelated-1");
 });
 
-test("moving a focused pane's last tab to another workspace restores sibling focus in its source", async () => {
+test("moving a tab to another workspace leaves the source workspace focused", async () => {
   const initial = collapseFocusFixture();
   const b = getPanes(initial.workspaces[0].root).find(
     (item) => item.id === "b",
@@ -1393,9 +1393,33 @@ test("moving a focused pane's last tab to another workspace restores sibling foc
     getPanes(h.state().workspaces[0].root).map((item) => item.id),
     ["a", "unrelated"],
   );
-  assert.equal(h.state().activeWorkspaceId, "destination");
+  assert.equal(h.state().activeWorkspaceId, "one");
   assert.equal(h.state().workspaces[1].focusedPaneId, "dest");
-  assert.equal(h.focused.at(-1), "b-1");
+  assert.equal(h.focused.at(-1), "a-1");
+});
+
+test("removing the source workspace after a move focuses the target workspace", async () => {
+  const source = pane("source", "/source");
+  source.tabs.splice(1);
+  const initial = {
+    activeWorkspaceId: "source",
+    workspaces: [
+      { id: "one", name: "^1", focusedPaneId: "a", root: pane("a", "/a") },
+      { id: "source", name: "^2", focusedPaneId: "source", root: source },
+      { id: "target", name: "^3", focusedPaneId: "c", root: pane("c", "/c") },
+    ],
+  } as PersistedState;
+  const h = harness(initial);
+
+  h.actions.moveTabToWorkspace("source-1", "target");
+  await settled();
+
+  assert.equal(h.state().activeWorkspaceId, "target");
+  assert.deepEqual(
+    h.state().workspaces.map((workspace) => workspace.id),
+    ["one", "target"],
+  );
+  assert.equal(h.focused.at(-1), "source-1");
 });
 
 test("rapid new-tab requests in an empty workspace share a pane and respect the tab limit", async () => {
