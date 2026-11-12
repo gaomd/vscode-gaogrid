@@ -5,7 +5,9 @@
 .codex/**
 .gitignore
 .prettierignore
-.env.example
+.env
+.env.*
+!.env.example
 src/**
 tests/**
 scripts/**
